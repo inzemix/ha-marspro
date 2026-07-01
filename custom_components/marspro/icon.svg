@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a2a1a"/>
+      <stop offset="100%" stop-color="#0d1a0d"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#2d8a4e"/>
+      <stop offset="100%" stop-color="#4ade80"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="#3a5a3a" stroke-width="2"/>
+  <!-- Stem -->
+  <line x1="128" y1="190" x2="128" y2="100" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+  <!-- Left leaf -->
+  <ellipse cx="100" cy="105" rx="28" ry="14" fill="url(#leaf)" transform="rotate(-30 100 105)"/>
+  <!-- Right leaf -->
+  <ellipse cx="156" cy="95" rx="24" ry="12" fill="url(#leaf)" transform="rotate(25 156 95)"/>
+  <!-- Top bud -->
+  <circle cx="128" cy="80" r="10" fill="#4ade80"/>
+  <!-- WiFi signal (subtle) -->
+  <path d="M 90 60 Q 128 40 166 60" fill="none" stroke="#4ade80" stroke-width="2" opacity="0.4"/>
+  <path d="M 100 48 Q 128 32 156 48" fill="none" stroke="#4ade80" stroke-width="2" opacity="0.3"/>
+</svg>
