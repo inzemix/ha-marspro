@@ -53,7 +53,7 @@ class MarsProMQTT:
             return
         self._hass.loop.call_soon_threadsafe(self._callback, msg.topic, data)
 
-    def _on_disconnect(self, client, userdata, rc, props=None):
+    def _on_disconnect(self, client, userdata, flags, rc, props=None):
         if rc != 0:
             _LOGGER.warning("MQTT disconnected (rc=%s). Reconnecting in %ss...", rc, self._reconnect_delay)
             self._hass.loop.call_later(self._reconnect_delay, self.reconnect)
