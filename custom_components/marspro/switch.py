@@ -21,6 +21,8 @@ async def async_setup_entry(
 
     for dev in state["devices"]:
         ptype = dev["productType"]
+        if ptype not in (DEVICE_IHUB10, DEVICE_CB43):
+            continue  # skip non-controller devices (lights, etc.)
         actuators = ACTUATORS_IHUB10 if ptype == DEVICE_IHUB10 else ACTUATORS_CB43
         for act_name, (domain, label) in actuators.items():
             if domain == "switch":
