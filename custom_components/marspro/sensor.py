@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, SENSOR_FIELDS, SENSOR_CB43_EXTRA, DEVICE_CB43
+from .const import DOMAIN, SENSOR_FIELDS, SENSOR_CB43_EXTRA, SENSOR_NAMES, DEVICE_IHUB10, DEVICE_CB43
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class MarsProSensor(SensorEntity):
         self._block = block
         self._field = field
         self._attr_unique_id = f"marspro_{serial}_{field}"
-        self._attr_name = f"{device_info['name']} {field}"
+        self._attr_name = f"{device_info['name']} {SENSOR_NAMES.get(field, field)}"
         self._attr_native_unit_of_measurement = unit
         if dev_class:
             self._attr_device_class = dev_class

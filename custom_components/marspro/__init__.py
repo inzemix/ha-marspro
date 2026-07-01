@@ -49,10 +49,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await mqtt.connect()
     state["mqtt"] = mqtt
 
-    # Poll each device immediately
-    for dev in devices:
-        mqtt.publish(dev["serial"], dev["model"], "getDevSta",
-                     {"pid": dev["serial"]})
+    # Poll after a short delay to let MQTT subscriptions settle
+    def poll_devices():
+        for dev in devices:
+            mqtt.publish(dev["serial"], dev["model"], "getDevSta",
+                         {"pid": dev["serial"]})
+    hass.loop.call_later(3, poll_devices)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

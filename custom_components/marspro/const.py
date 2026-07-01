@@ -48,6 +48,20 @@ ACTUATORS_CB43 = {
     "dehumidifier": ("switch", "Dehumidifier"),
 }
 
+SENSOR_NAMES = {
+    "temp": "Temperature",
+    "humi": "Humidity",
+    "vpd": "VPD",
+    "vRms": "Voltage",
+    "aRms": "Current",
+    "wattP": "Power",
+    "energy": "Energy",
+    "ppfd": "PPFD",
+    "tempSoil": "Soil Temperature",
+    "humiSoil": "Soil Humidity",
+    "ECSoil": "Soil EC",
+}
+
 # Sensors common to all devices
 SENSOR_FIELDS = {
     "sensor": {
