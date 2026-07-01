@@ -48,7 +48,7 @@ class MarsProSensor(SensorEntity):
         self._serial = serial
         self._block = block
         self._field = field
-        self._attr_unique_id = f"marspro_{serial}_{field}"
+        self._attr_unique_id = f"marspro_{serial}_{SENSOR_NAMES.get(field, field).lower().replace(' ', '_')}"
         self._attr_name = f"{device_info['name']} {SENSOR_NAMES.get(field, field)}"
         self._attr_native_unit_of_measurement = unit
         if dev_class:
