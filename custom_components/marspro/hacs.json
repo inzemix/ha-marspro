@@ -1,0 +1,8 @@
+{
+    "name": "Mars Pro",
+    "content_in_root": false,
+    "render_readme": true,
+    "domains": ["sensor", "switch", "light", "fan", "binary_sensor"],
+    "homeassistant": "2025.1.0",
+    "country": ["ALL"]
+}

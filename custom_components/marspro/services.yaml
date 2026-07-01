@@ -1,0 +1,28 @@
+set_device_config:
+  name: Set device configuration
+  description: Write a configuration field for a device actuator.
+  target:
+    entity:
+      integration: marspro
+  fields:
+    actuator:
+      name: Actuator
+      description: The actuator to configure (light, fan, humidifier, etc.)
+      required: true
+      example: light
+      selector:
+        text:
+    key:
+      name: Key
+      description: The config key to set (mLevel, mOnOff, modeType, etc.)
+      required: true
+      example: mLevel
+      selector:
+        text:
+    value:
+      name: Value
+      description: The value to set.
+      required: true
+      example: "75"
+      selector:
+        text:
