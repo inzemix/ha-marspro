@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN
+from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +18,9 @@ async def async_setup_entry(
 
     for dev in state["devices"]:
         serial = dev["serial"]
+        ptype = dev["productType"]
+        if ptype not in (DEVICE_IHUB10, DEVICE_CB43):
+            continue
         entities.extend([
             MarsProBinarySensor(state, serial, dev, "isDaySensor", "Day Sensor", BinarySensorDeviceClass.LIGHT),
             MarsProBinarySensor(state, serial, dev, "connectivity", "Connected", BinarySensorDeviceClass.CONNECTIVITY),

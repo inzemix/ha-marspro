@@ -18,7 +18,11 @@ async def async_setup_entry(
 
     for dev in state["devices"]:
         serial = dev["serial"]
-        is_cb43 = dev["productType"] == DEVICE_CB43
+        ptype = dev["productType"]
+        # Only controllers (iHub, CB43) have sensors. Lights have none.
+        if ptype not in (DEVICE_IHUB10, DEVICE_CB43):
+            continue
+        is_cb43 = ptype == DEVICE_CB43
 
         # Common sensors (sensor block)
         for field, (dev_class, unit, _) in SENSOR_FIELDS.get("sensor", {}).items():
