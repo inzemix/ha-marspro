@@ -72,20 +72,28 @@ class MarsProLight(LightEntity):
         new_level = int(brightness * 100 / 255)
         new_level = max(5, min(100, round(new_level / 5) * 5))
 
-        # Hysteresis: only send if change >= 5%
+        # Hysteresis: skip if change < 5% from last sent
         last_level = getattr(self, "_last_sent_level", None)
         if last_level is not None and abs(new_level - last_level) < 5:
             return
-        self._last_sent_level = new_level
 
-        mqtt = self._state.get("mqtt")
-        if not mqtt:
-            return
-        await self.hass.async_add_executor_job(
-            mqtt.publish, self._serial, self._model, "setConfigField",
-            {"pid": self._serial, "keyPath": ["device", self._actuator],
-             self._actuator: {"mOnOff": 1, "mLevel": new_level}}
-        )
+        # Cancel pending debounce, re-arm for 500ms
+        if hasattr(self, "_debounce") and self._debounce:
+            self._debounce.cancel()
+
+        async def _do_send():
+            self._last_sent_level = new_level
+            mqtt = self._state.get("mqtt")
+            if not mqtt:
+                return
+            await self.hass.async_add_executor_job(
+                mqtt.publish, self._serial, self._model, "setConfigField",
+                {"pid": self._serial, "keyPath": ["device", self._actuator],
+                 self._actuator: {"mOnOff": 1, "mLevel": new_level}}
+            )
+
+        self._debounce = self.hass.loop.call_later(0.5,
+            lambda: self.hass.async_create_task(_do_send()))
 
     async def async_turn_off(self, **kwargs):
         mqtt = self._state.get("mqtt")
