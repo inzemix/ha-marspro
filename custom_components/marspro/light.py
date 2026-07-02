@@ -73,7 +73,7 @@ class MarsProLight(LightEntity):
         level = int(brightness * 100 / 255)  # 0-255 → 0-100
         mqtt = self._state.get("mqtt")
         if mqtt:
-            await self._hass.async_add_executor_job(
+            await self.hass.async_add_executor_job(
                 mqtt.publish, self._serial, self._model, "setConfigField",
                 {"pid": self._serial, "keyPath": ["device", self._actuator],
                  self._actuator: {"mOnOff": 1, "mLevel": level}}
@@ -82,7 +82,7 @@ class MarsProLight(LightEntity):
     async def async_turn_off(self, **kwargs):
         mqtt = self._state.get("mqtt")
         if mqtt:
-            await self._hass.async_add_executor_job(
+            await self.hass.async_add_executor_job(
                 mqtt.publish, self._serial, self._model, "setConfigField",
                 {"pid": self._serial, "keyPath": ["device", self._actuator],
                  self._actuator: {"mLevel": 0}}
