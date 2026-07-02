@@ -70,13 +70,32 @@ class MarsProLight(LightEntity):
     async def async_turn_on(self, **kwargs):
         brightness = kwargs.get("brightness", 255)
         level = int(brightness * 100 / 255)  # 0-255 → 0-100
-        mqtt = self._state.get("mqtt")
-        if mqtt:
+        # Round to nearest 5% for reliability
+        level = max(5, min(100, round(level / 5) * 5))
+
+        # Cancel any pending dim command (debounce — only send final value)
+        if hasattr(self, "_debounce_timer") and self._debounce_timer:
+            self._debounce_timer.cancel()
+
+        async def _do_dim():
+            mqtt = self._state.get("mqtt")
+            if not mqtt:
+                return
             await self.hass.async_add_executor_job(
                 mqtt.publish, self._serial, self._model, "setConfigField",
                 {"pid": self._serial, "keyPath": ["device", self._actuator],
                  self._actuator: {"mOnOff": 1, "mLevel": level}}
             )
+            # Verify after 3 seconds
+            async def _verify():
+                mqtt = self._state.get("mqtt")
+                if mqtt:
+                    mqtt.publish(self._serial, self._model, "getDevSta",
+                                 {"pid": self._serial})
+            self.hass.loop.call_later(3, lambda: self.hass.async_create_task(_verify()))
+
+        self._debounce_timer = self.hass.loop.call_later(1,
+            lambda: self.hass.async_create_task(_do_dim()))
 
     async def async_turn_off(self, **kwargs):
         mqtt = self._state.get("mqtt")
