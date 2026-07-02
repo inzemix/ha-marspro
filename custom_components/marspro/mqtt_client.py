@@ -13,7 +13,7 @@ class MarsProMQTT:
     """Manages MQTT connection to Mars Pro cloud broker."""
 
     def __init__(self, hass, user: str, password: str, devices: list[dict], message_callback):
-        self._hass = hass
+        self.hass = hass
         self._user = user
         self._password = password
         self._devices = devices
@@ -51,18 +51,18 @@ class MarsProMQTT:
             data = json.loads(msg.payload)
         except Exception:
             return
-        self._hass.loop.call_soon_threadsafe(self._callback, msg.topic, data)
+        self.hass.loop.call_soon_threadsafe(self._callback, msg.topic, data)
 
     def _on_disconnect(self, client, userdata, flags, rc, props=None):
         if rc != 0:
             _LOGGER.warning("MQTT disconnected (rc=%s). Reconnecting in %ss...", rc, self._reconnect_delay)
-            self._hass.loop.call_later(self._reconnect_delay, self.reconnect)
+            self.hass.loop.call_later(self._reconnect_delay, self.reconnect)
             self._reconnect_delay = min(self._reconnect_delay * 2, RECONNECT_MAX)
 
     async def connect(self):
         """Connect to MQTT broker."""
         self._client = self._build_client()
-        await self._hass.async_add_executor_job(
+        await self.hass.async_add_executor_job(
             self._client.connect, MQTT_HOST, MQTT_PORT, 30
         )
         self._client.loop_start()

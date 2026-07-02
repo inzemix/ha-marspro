@@ -1,5 +1,4 @@
 """Switch platform for Mars Pro integration."""
-import json
 import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry

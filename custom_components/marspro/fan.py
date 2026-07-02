@@ -1,5 +1,4 @@
 """Fan platform for Mars Pro integration."""
-import json
 import logging
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry

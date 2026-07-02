@@ -1,5 +1,4 @@
 """Light platform for Mars Pro integration."""
-import json
 import logging
 from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.config_entries import ConfigEntry
