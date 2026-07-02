@@ -56,6 +56,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                          {"pid": dev["serial"]})
     hass.loop.call_later(3, poll_devices)
 
+    # Periodic health polling (every 60s)
+    async def periodic_poll(now=None):
+        for dev in devices:
+            mqtt.publish(dev["serial"], dev["model"], "getDevSta",
+                         {"pid": dev["serial"]})
+        state["_poll_timer"] = hass.loop.call_later(60, 
+            lambda: hass.async_create_task(periodic_poll()))
+
+    state["_poll_timer"] = hass.loop.call_later(65,
+        lambda: hass.async_create_task(periodic_poll()))
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = state
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -63,6 +74,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     state = hass.data[DOMAIN].pop(entry.entry_id, {})
+    if timer := state.get("_poll_timer"):
+        timer.cancel()
     if mqtt := state.get("mqtt"):
         mqtt.disconnect()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
