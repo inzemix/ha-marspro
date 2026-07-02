@@ -1,25 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#1a2a1a"/>
       <stop offset="100%" stop-color="#0d1a0d"/>
     </linearGradient>
-    <linearGradient id="leaf" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#2d8a4e"/>
+    <linearGradient id="stem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="leaf_l" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#15803d"/>
       <stop offset="100%" stop-color="#4ade80"/>
     </linearGradient>
+    <linearGradient id="leaf_r" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#4ade80"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4ade80" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#22c55e" stop-opacity="0.05"/>
+    </linearGradient>
   </defs>
-  <!-- Background circle -->
-  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="#3a5a3a" stroke-width="2"/>
+
+  <!-- Outer ring -->
+  <circle cx="128" cy="128" r="120" fill="none" stroke="url(#ring)" stroke-width="4"/>
+  <circle cx="128" cy="128" r="116" fill="url(#bg)"/>
+
+  <!-- Inner glow ring -->
+  <circle cx="128" cy="128" r="110" fill="none" stroke="#22c55e" stroke-width="1" opacity="0.15"/>
+
   <!-- Stem -->
-  <line x1="128" y1="190" x2="128" y2="100" stroke="#4ade80" stroke-width="6" stroke-linecap="round"/>
+  <path d="M128 190 Q 128 140 128 95" fill="none" stroke="url(#stem)" stroke-width="5" stroke-linecap="round"/>
+
   <!-- Left leaf -->
-  <ellipse cx="100" cy="105" rx="28" ry="14" fill="url(#leaf)" transform="rotate(-30 100 105)"/>
+  <path d="M 128 110 Q 98 95 82 78 Q 95 72 128 95 Z" fill="url(#leaf_l)" stroke="#4ade80" stroke-width="0.5" opacity="0.9"/>
+  <!-- Left leaf vein -->
+  <path d="M 128 95 Q 110 88 90 80" fill="none" stroke="#86efac" stroke-width="0.8" opacity="0.4"/>
+
   <!-- Right leaf -->
-  <ellipse cx="156" cy="95" rx="24" ry="12" fill="url(#leaf)" transform="rotate(25 156 95)"/>
-  <!-- Top bud -->
-  <circle cx="128" cy="80" r="10" fill="#4ade80"/>
-  <!-- WiFi signal (subtle) -->
-  <path d="M 90 60 Q 128 40 166 60" fill="none" stroke="#4ade80" stroke-width="2" opacity="0.4"/>
-  <path d="M 100 48 Q 128 32 156 48" fill="none" stroke="#4ade80" stroke-width="2" opacity="0.3"/>
+  <path d="M 128 100 Q 158 82 170 68 Q 155 65 128 88 Z" fill="url(#leaf_r)" stroke="#4ade80" stroke-width="0.5" opacity="0.9"/>
+  <!-- Right leaf vein -->
+  <path d="M 128 88 Q 145 78 162 72" fill="none" stroke="#86efac" stroke-width="0.8" opacity="0.4"/>
+
+  <!-- Small sprout top -->
+  <path d="M 128 95 Q 122 80 128 70 Q 134 80 128 95 Z" fill="#4ade80" opacity="0.8"/>
+
+  <!-- Connection arcs (WiFi-like) -->
+  <path d="M 85 52 Q 128 32 171 52" fill="none" stroke="#4ade80" stroke-width="2.5" opacity="0.35" stroke-linecap="round"/>
+  <path d="M 98 40 Q 128 24 158 40" fill="none" stroke="#4ade80" stroke-width="2" opacity="0.25" stroke-linecap="round"/>
+
+  <!-- Small dots at base representing soil/hub -->
+  <circle cx="118" cy="195" r="2" fill="#4ade80" opacity="0.3"/>
+  <circle cx="128" cy="198" r="2" fill="#4ade80" opacity="0.5"/>
+  <circle cx="138" cy="195" r="2" fill="#4ade80" opacity="0.3"/>
 </svg>
