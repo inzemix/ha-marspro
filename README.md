@@ -1,4 +1,4 @@
-# Mars Pro — Home Assistant Integration
+# Mars Hydro — Home Assistant Integration
 
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
