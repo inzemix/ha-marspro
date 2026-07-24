@@ -12,12 +12,13 @@ _LOGGER = logging.getLogger(__name__)
 class MarsProMQTT:
     """Manages MQTT connection to Mars Pro cloud broker."""
 
-    def __init__(self, hass, user: str, password: str, devices: list[dict], message_callback):
+    def __init__(self, hass, user: str, password: str, devices: list[dict], message_callback, on_reconnect=None):
         self.hass = hass
         self._user = user
         self._password = password
         self._devices = devices
         self._callback = message_callback
+        self._on_reconnect_callback = on_reconnect
         self._client: mqtt.Client | None = None
         self._reconnect_delay = RECONNECT_BASE
 
@@ -43,6 +44,10 @@ class MarsProMQTT:
                 topic = MQTT_TOPIC_UP.format(model=dev["model"], serial=dev["serial"])
                 client.subscribe(topic, qos=0)
                 _LOGGER.debug("Subscribed to %s", topic)
+            # Notify HA that reconnection is complete (for state restore)
+            if self._on_reconnect_callback:
+                self.hass.loop.call_later(2, lambda: self.hass.async_create_task(
+                    self._on_reconnect_callback()))
         else:
             _LOGGER.error("MQTT connect failed: rc=%s", rc)
 

@@ -39,12 +39,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 dev_state[method] = data
                 state["live_data"][serial] = dev_state
 
+    def on_mqtt_reconnect():
+        """Called after successful MQTT reconnection — restore masterOn + poll."""
+        _LOGGER.info("Mars Pro MQTT reconnected — restoring masterOn")
+        for dev in devices:
+            mqtt.publish(dev["serial"], dev["model"], "setConfigField",
+                         {"pid": dev["serial"], "keyPath": ["outlet"],
+                          "outlet": {"masterOn": 1}})
+            mqtt.publish(dev["serial"], dev["model"], "getDevSta",
+                         {"pid": dev["serial"]})
+
     mqtt = MarsProMQTT(
         hass,
         user=entry.data["mqtt_user"],
         password=entry.data["mqtt_pwd"],
         devices=devices,
         message_callback=on_mqtt_message,
+        on_reconnect=on_mqtt_reconnect,
     )
     await mqtt.connect()
     state["mqtt"] = mqtt
