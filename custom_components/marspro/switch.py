@@ -26,6 +26,8 @@ async def async_setup_entry(
         for act_name, (domain, label) in actuators.items():
             if domain == "switch":
                 entities.append(MarsProSwitch(state, dev, act_name, label))
+        # Switch général (outlet.masterOn) — « réveille » l'iHub après coupure
+        entities.append(MarsProMasterSwitch(state, dev))
 
     async_add_entities(entities)
 
@@ -74,4 +76,59 @@ class MarsProSwitch(SwitchEntity):
                 mqtt.publish, self._serial, self._model, "setConfigField",
                 {"pid": self._serial, "keyPath": ["device", self._actuator],
                  self._actuator: {"mLevel": 0}}
+            )
+
+
+class MarsProMasterSwitch(SwitchEntity):
+    """Switch général de l'iHub (outlet.masterOn).
+
+    Après une coupure de courant, l'iHub redémarre avec masterOn=0 et ignore
+    toutes les commandes d'actuateurs tant qu'on ne l'a pas « réveillé ».
+    Ce switch expose le masterOn : turn_on le réveille, turn_off coupe tout.
+    """
+
+    _attr_icon = "mdi:power"
+
+    def __init__(self, state: dict, device_info: dict):
+        self._state = state
+        self._serial = device_info["serial"]
+        self._model = device_info["model"]
+        self._attr_unique_id = f"marspro_{self._serial}_master_switch"
+        self._attr_name = f"{device_info['name']} Master"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self._serial)},
+            name=device_info["name"],
+            model=device_info["productType"],
+            manufacturer="Mars Hydro",
+        )
+
+    @property
+    def is_on(self):
+        data = self._state["live_data"].get(self._serial, {})
+        devsta = data.get("getDevSta", {}).get("data", {})
+        outlet = devsta.get("outlet", {})
+        return bool(outlet.get("masterOn", 0))
+
+    @property
+    def available(self):
+        return self._serial in self._state["live_data"]
+
+    async def async_turn_on(self, **kwargs):
+        """Réveille l'iHub (masterOn=1)."""
+        mqtt = self._state.get("mqtt")
+        if mqtt:
+            await self.hass.async_add_executor_job(
+                mqtt.publish, self._serial, self._model, "setConfigField",
+                {"pid": self._serial, "keyPath": ["outlet"],
+                 "outlet": {"masterOn": 1}}
+            )
+
+    async def async_turn_off(self, **kwargs):
+        """Coupe l'iHub globalement (masterOn=0)."""
+        mqtt = self._state.get("mqtt")
+        if mqtt:
+            await self.hass.async_add_executor_job(
+                mqtt.publish, self._serial, self._model, "setConfigField",
+                {"pid": self._serial, "keyPath": ["outlet"],
+                 "outlet": {"masterOn": 0}}
             )
