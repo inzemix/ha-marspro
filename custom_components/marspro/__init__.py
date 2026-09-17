@@ -24,6 +24,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("No devices found for account %s", email)
         return False
 
+    for d in devices:
+        _LOGGER.info(
+            "Mars Pro: discovered device '%s' serial=%s productType=%s model=%s",
+            d["name"], d["serial"], d["productType"], d["model"],
+        )
+
     # Shared state between platforms
     state = {"devices": devices, "live_data": {}, "mqtt": None}
 

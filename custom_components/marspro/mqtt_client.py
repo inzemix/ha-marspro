@@ -1,4 +1,5 @@
 """MQTT client for Mars Pro cloud broker."""
+import asyncio
 import json
 import logging
 import ssl
@@ -46,8 +47,11 @@ class MarsProMQTT:
                 _LOGGER.debug("Subscribed to %s", topic)
             # Notify HA that reconnection is complete (for state restore)
             if self._on_reconnect_callback:
-                self.hass.loop.call_later(2, lambda: self.hass.async_create_task(
-                    self._on_reconnect_callback()))
+                def _schedule_reconnect():
+                    result = self._on_reconnect_callback()
+                    if asyncio.iscoroutine(result):
+                        self.hass.async_create_task(result)
+                self.hass.loop.call_later(2, _schedule_reconnect)
         else:
             _LOGGER.error("MQTT connect failed: rc=%s", rc)
 
