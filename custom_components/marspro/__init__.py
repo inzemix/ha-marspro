@@ -3,7 +3,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
-from .const import DOMAIN
+from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43
 from .api import MarsProAPI
 from .mqtt_client import MarsProMQTT
 
@@ -24,11 +24,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("No devices found for account %s", email)
         return False
 
+    # Entities are only created for the controller types below (see the
+    # platform modules). Log discovery so an unsupported device is diagnosable
+    # instead of silently producing no entities at all.
+    supported_types = (DEVICE_IHUB10, DEVICE_CB43)
     for d in devices:
-        _LOGGER.info(
-            "Mars Pro: discovered device '%s' serial=%s productType=%s model=%s",
-            d["name"], d["serial"], d["productType"], d["model"],
-        )
+        if d["productType"] in supported_types:
+            _LOGGER.info(
+                "Mars Pro: discovered device '%s' serial=%s productType=%s model=%s",
+                d["name"], d["serial"], d["productType"], d["model"],
+            )
+        else:
+            _LOGGER.warning(
+                "Mars Pro: UNSUPPORTED device '%s' (productType=%s, serial=%s) — "
+                "no entities will be created for this device, it will not appear "
+                "in Home Assistant. Supported types: %s. If you own this device, "
+                "please report its productType at "
+                "https://github.com/inzemix/ha-marspro/issues",
+                d["name"], d["productType"], d["serial"],
+                ", ".join(supported_types),
+            )
 
     # Shared state between platforms
     state = {"devices": devices, "live_data": {}, "mqtt": None}

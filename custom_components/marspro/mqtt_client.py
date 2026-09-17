@@ -30,8 +30,18 @@ class MarsProMQTT:
             protocol=mqtt.MQTTv311,
         )
         client.username_pw_set(self._user, self._password)
-        client.tls_set(cert_reqs=ssl.CERT_NONE)
-        client.tls_insecure_set(True)
+        # The Mars Pro broker uses a self-signed certificate, so verification is
+        # disabled. We build the SSL context ourselves instead of using
+        # client.tls_set(): paho's tls_set() calls load_default_certs() which
+        # reads ~119 CA files from disk *inside the event loop*, and HA reports
+        # it as a blocking call. Since nothing is verified here, loading the
+        # system trust store would be pointless anyway.
+        # (tls_set_context() sets _tls_insecure=True automatically when
+        # verify_mode is CERT_NONE.)
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        client.tls_set_context(ssl_context)
         client.on_connect = self._on_connect
         client.on_message = self._on_message
         client.on_disconnect = self._on_disconnect
@@ -70,7 +80,9 @@ class MarsProMQTT:
 
     async def connect(self):
         """Connect to MQTT broker."""
-        self._client = self._build_client()
+        # Build the client in an executor so any blocking setup (SSL context,
+        # socket options) stays off the event loop.
+        self._client = await self.hass.async_add_executor_job(self._build_client)
         await self.hass.async_add_executor_job(
             self._client.connect, MQTT_HOST, MQTT_PORT, 30
         )
