@@ -3,7 +3,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
-from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43
+from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43, KNOWN_NO_ENTITY_TYPES
 from .api import MarsProAPI
 from .mqtt_client import MarsProMQTT
 
@@ -25,23 +25,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     # Entities are only created for the controller types below (see the
-    # platform modules). Log discovery so an unsupported device is diagnosable
-    # instead of silently producing no entities at all.
+    # platform modules). Log discovery so a device that produces no entities is
+    # diagnosable instead of silently invisible.
     supported_types = (DEVICE_IHUB10, DEVICE_CB43)
     for d in devices:
-        if d["productType"] in supported_types:
+        ptype = d["productType"]
+        if ptype in supported_types:
             _LOGGER.info(
                 "Mars Pro: discovered device '%s' serial=%s productType=%s model=%s",
-                d["name"], d["serial"], d["productType"], d["model"],
+                d["name"], d["serial"], ptype, d["model"],
+            )
+        elif ptype in KNOWN_NO_ENTITY_TYPES:
+            _LOGGER.info(
+                "Mars Pro: device '%s' (productType=%s, serial=%s) is a %s — "
+                "no entities by design.",
+                d["name"], ptype, d["serial"], KNOWN_NO_ENTITY_TYPES[ptype],
             )
         else:
             _LOGGER.warning(
                 "Mars Pro: UNSUPPORTED device '%s' (productType=%s, serial=%s) — "
                 "no entities will be created for this device, it will not appear "
-                "in Home Assistant. Supported types: %s. If you own this device, "
-                "please report its productType at "
+                "in Home Assistant. Supported types: %s. If you expect this device "
+                "to expose entities, please report its productType at "
                 "https://github.com/inzemix/ha-marspro/issues",
-                d["name"], d["productType"], d["serial"],
+                d["name"], ptype, d["serial"],
                 ", ".join(supported_types),
             )
 
