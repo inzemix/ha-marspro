@@ -3,8 +3,9 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43, KNOWN_NO_ENTITY_TYPES
-from .api import MarsProAPI
+from .api import AuthError, MarsProAPI
 from .mqtt_client import MarsProMQTT
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,8 +18,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     password = entry.data["password"]
 
     api = MarsProAPI(email, password)
-    await hass.async_add_executor_job(api.login)
-    devices = await hass.async_add_executor_job(api.fetch_devices)
+    # The Mars Hydro cloud occasionally answers 502/503 or times out. Without
+    # ConfigEntryNotReady such a hiccup would leave the integration permanently
+    # failed (entities unavailable) until a manual reload/restart, which is
+    # exactly what happened on 17/09/2026. ConfigEntryNotReady makes Home
+    # Assistant retry the setup automatically with its own backoff. Only a
+    # genuine credential problem triggers a reauth flow.
+    try:
+        await hass.async_add_executor_job(api.login)
+    except AuthError as err:
+        raise ConfigEntryAuthFailed(f"Mars Pro rejected the credentials: {err}") from err
+    except Exception as err:
+        raise ConfigEntryNotReady(f"Cannot reach the Mars Pro cloud API: {err}") from err
+
+    try:
+        devices = await hass.async_add_executor_job(api.fetch_devices)
+    except Exception as err:
+        raise ConfigEntryNotReady(
+            f"Cannot fetch devices from the Mars Pro cloud: {err}"
+        ) from err
 
     if not devices:
         _LOGGER.error("No devices found for account %s", email)
@@ -85,7 +103,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         message_callback=on_mqtt_message,
         on_reconnect=on_mqtt_reconnect,
     )
-    await mqtt.connect()
+    try:
+        await mqtt.connect()
+    except Exception as err:
+        raise ConfigEntryNotReady(
+            f"Cannot connect to the Mars Pro MQTT broker: {err}"
+        ) from err
     state["mqtt"] = mqtt
 
     # Poll after a short delay to let MQTT subscriptions settle
