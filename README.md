@@ -10,7 +10,7 @@
 
 Connect your Mars Hydro / Mars Pro devices (iHub Pro, iController, lamps, fans) to Home Assistant — sensors, switches, lights, and fans all discovered automatically.
 
-> **Credit:** The Mars Pro cloud API was reverse-engineered by [iClint/MarsHydroAPIDocs](https://github.com/iClint/MarsHydroAPIDocs). This integration is built on that work.
+> **Credit:** The Mars Pro cloud API foundation (REST login, MQTT topic scheme and broker authentication) was reverse-engineered by [iClint/MarsHydroAPIDocs](https://github.com/iClint/MarsHydroAPIDocs), verified there against a **Controller 43 (`MH-CB43`)**. This integration is built on top of that work. The **iHub Pro (`MH-IHUB10`)** protocol is *not* covered by that documentation — it was reverse-engineered separately for this project by observing the device's live MQTT traffic.
 
 ## Supported Devices
 
@@ -21,6 +21,22 @@ Connect your Mars Hydro / Mars Pro devices (iHub Pro, iController, lamps, fans) 
 | Grow lights (FC / TS series) | `MZU001` | ⚠️ **None of their own** — BLE-only devices that expose nothing through the cloud API. Their brightness is controlled through the iHub/iController dimmer port they are plugged into. |
 
 Entities are only created for the two controller types listed above. Any other device type is reported in the Home Assistant log — see the FAQ below.
+
+## Adding support for another device
+
+A controller that is not listed above can only be supported once its protocol has actually been observed — that is how iHub Pro support was added in the first place.
+
+`tools/discover_device.py` is a **read-only** probe: it lists every device on your account, then connects to the MQTT broker and asks each device for its state. It never sends a command and never changes anything on your setup.
+
+```bash
+pip install paho-mqtt
+python3 tools/discover_device.py
+```
+
+Paste its output in a new issue. It shows the exact `productType` of each device and, crucially, **whether the device answers on the cloud broker at all**:
+
+- **It answers** (like the iHub Pro): its data blocks become visible, and support can be added.
+- **No reply** (like the FC series grow lights): the device is most likely Bluetooth-only. It talks to the Mars Pro app over BLE and exposes nothing through the cloud, so this integration cannot reach it.
 
 ## Installation
 
