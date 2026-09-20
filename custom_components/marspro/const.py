@@ -33,6 +33,13 @@ KNOWN_NO_ENTITY_TYPES = {
     "MZU001": "grow-light fixture (BLE-only, no cloud/MQTT actuators)",
 }
 
+# Device support report (service marspro.generate_device_report).
+# The report is written inside the Home Assistant config directory so the user
+# can open it with the File Editor and paste it into a GitHub issue.
+SERVICE_GENERATE_REPORT = "generate_device_report"
+REPORT_FILENAME = "marspro_device_report.txt"
+SUPPORTED_TYPES = (DEVICE_IHUB10, DEVICE_CB43)
+
 # Known actuator mapping per device class
 ACTUATORS_IHUB10 = {
     "light":        ("light", "Light 1"),

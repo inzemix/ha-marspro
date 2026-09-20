@@ -20,25 +20,35 @@ Connect your Mars Hydro / Mars Pro devices (iHub Pro, iController, lamps, fans) 
 | **iController Pro** | `MH-CB43` | T°, RH, VPD, PPFD, soil sensors, light, fan, blower, sockets |
 | Grow lights (FC / TS series) | `MZU001` | ⚠️ **None of their own** — BLE-only devices that expose nothing through the cloud API. Their brightness is controlled through the iHub/iController dimmer port they are plugged into. |
 
-Entities are only created for the two controller types listed above. Any other device type is reported in the Home Assistant log — see the FAQ below.
+Entities are only created for the two controller types listed above. Any other device type triggers a notification with a ready-to-send diagnostic report — see below.
 
 ## Adding support for another device
 
 A controller that is not listed above can only be supported once its protocol has actually been observed — that is how iHub Pro support was added in the first place.
 
-`tools/discover_device.py` is a **read-only** probe: it lists every device on your account, then connects to the MQTT broker and asks each device for its state. It never sends a command and never changes anything on your setup.
+**You have nothing to install and nothing to run.** When the integration finds a device it does not support yet, it probes it once and shows a notification in Home Assistant with a link to the report:
 
-It uses **only the Python standard library — nothing to install**, no `pip`, no virtualenv. Run it on a normal computer (Windows, macOS, Linux), **not** on your Home Assistant server: Home Assistant OS has no usable Python/pip environment.
+1. It asks the device to describe itself — strictly read-only (`getDevSta`, `getSysSta`, `getConfigFile`). **Nothing is ever switched on or off.**
+2. The report is written to `marspro_device_report.txt` in your Home Assistant configuration folder and served through a **private link that expires after 7 days**.
+3. Send it to us in an issue and support can be added.
+
+**Please review the report before sending it**: it contains your device names, serial numbers and their raw state payloads (never your credentials).
+
+You can also run it on demand: **Developer tools → Actions → `marspro.generate_device_report`**.
+
+What the report answers is the key question: does the device answer on the cloud broker at all?
+
+- **It answers** (like the iHub Pro): its data blocks become visible, and support can be added.
+- **No reply** (like the FC series grow lights): the device is most likely Bluetooth-only. It talks to the Mars Pro app over BLE and exposes nothing through the cloud, so this integration cannot reach it.
+
+`tools/discover_device.py` does the same from any computer (Windows, macOS, Linux) using **only the Python standard library — nothing to install**, handy when your Home Assistant is not reachable. Run it on a normal computer, **not** on your Home Assistant server: Home Assistant OS has no usable Python/pip environment.
 
 ```bash
 python3 discover_device.py      # macOS / Linux
 python discover_device.py       # Windows
 ```
 
-Paste its output in a new issue. It shows the exact `productType` of each device and, crucially, **whether the device answers on the cloud broker at all**:
-
-- **It answers** (like the iHub Pro): its data blocks become visible, and support can be added.
-- **No reply** (like the FC series grow lights): the device is most likely Bluetooth-only. It talks to the Mars Pro app over BLE and exposes nothing through the cloud, so this integration cannot reach it.
+Paste its output in a new issue.
 
 ## Installation
 
@@ -68,6 +78,7 @@ Copy `custom_components/marspro/` to `<config>/custom_components/marspro/`
 - 📊 Per-device configuration via `setConfigField`
 - ⚠️ Low water / fault alarms
 - 🔄 Automatic reconnection with exponential backoff
+- 🩺 Automatic read-only diagnostic when an unsupported device is found, with a ready-to-send report
 
 ## Security
 
@@ -82,10 +93,10 @@ Copy `custom_components/marspro/` to `<config>/custom_components/marspro/`
 A: No. Devices communicate through Mars Hydro's MQTT broker (`mars-pro.mqtt.lgledsolutions.com`). The firmware project [ihub-pro-open](https://github.com/thorstendjthb-glitch/ihub-pro-open) enables fully local control for iHub Pro.
 
 **Q: My device doesn't appear in Home Assistant.**
-A: Check your Home Assistant log for a line like:
+A: Home Assistant shows a notification titled **"Mars Pro — unsupported device"** containing a link to a diagnostic report you can send us. The log also contains a line like:
 
 ```
-Mars Pro: UNSUPPORTED device '<name>' (productType=<type>, serial=<serial>) — no entities will be created for this device
+Mars Pro: UNSUPPORTED device '<name>' (productType=<type>, serial=<serial>) — probing it now (read-only) so support can be added.
 ```
 
 It tells you the exact device type found on your account. Entities are only created for `MH-IHUB10` and `MH-CB43`; other controllers (for example iConnect / iControl, which replaced the older Controller 43) were never reverse-engineered and therefore cannot be supported — see the credit note above for why. Also make sure the device is online and visible in the Mars Pro app first.

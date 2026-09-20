@@ -1,28 +1,32 @@
-set_device_config:
-  name: Set device configuration
-  description: Write a configuration field for a device actuator.
-  target:
-    entity:
-      integration: marspro
+generate_device_report:
+  name: Generate device support report
+  description: >
+    Probes the devices on your Mars Pro account that this integration does not
+    support yet, and writes a report you can send us so support can be added.
+
+    This is strictly read-only: only getDevSta, getSysSta and getConfigFile are
+    sent to the devices - nothing is ever switched on or off, and no
+    configuration is written. The report is saved in your Home Assistant
+    configuration folder and a notification links to it.
+
+    A report is also generated automatically when an unsupported device is
+    detected, so you normally never need to call this action yourself.
   fields:
-    actuator:
-      name: Actuator
-      description: The actuator to configure (light, fan, humidifier, etc.)
-      required: true
-      example: light
+    include_supported:
+      name: Include supported devices
+      description: >
+        Also probe the devices that already work, for comparison. Rarely needed.
+      required: false
+      default: false
       selector:
-        text:
-    key:
-      name: Key
-      description: The config key to set (mLevel, mOnOff, modeType, etc.)
-      required: true
-      example: mLevel
+        boolean:
+    wait_seconds:
+      name: Wait time
+      description: How long to wait for each device's reply, in seconds.
+      required: false
+      default: 12
       selector:
-        text:
-    value:
-      name: Value
-      description: The value to set.
-      required: true
-      example: "75"
-      selector:
-        text:
+        number:
+          min: 3
+          max: 60
+          unit_of_measurement: seconds
