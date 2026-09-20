@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.const import Platform, __version__ as HA_VERSION
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.loader import async_get_integration
 
 from .const import (
@@ -391,8 +392,20 @@ async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
 
 
 def _report_link(hass: HomeAssistant) -> str:
-    """Return a signed, expiring URL serving the report."""
-    return async_sign_path(hass, MarsProReportView.url, REPORT_LINK_TTL)
+    """Return a signed, expiring **absolute** URL serving the report.
+
+    The URL must be absolute: the phone apps hand a bare relative path over to
+    an external browser, where it cannot be resolved and the link looks dead.
+    """
+    path = async_sign_path(hass, MarsProReportView.url, REPORT_LINK_TTL)
+    try:
+        base = get_url(
+            hass, allow_internal=True, allow_external=True, allow_cloud=True
+        )
+    except NoURLAvailableError:
+        # last resort: relative link, still fine when opened from the web UI
+        return path
+    return f"{base}{path}"
 
 
 def _device_names(devices: list[dict]) -> str:
