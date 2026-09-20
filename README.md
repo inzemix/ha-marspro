@@ -28,9 +28,11 @@ A controller that is not listed above can only be supported once its protocol ha
 
 `tools/discover_device.py` is a **read-only** probe: it lists every device on your account, then connects to the MQTT broker and asks each device for its state. It never sends a command and never changes anything on your setup.
 
+It uses **only the Python standard library — nothing to install**, no `pip`, no virtualenv. Run it on a normal computer (Windows, macOS, Linux), **not** on your Home Assistant server: Home Assistant OS has no usable Python/pip environment.
+
 ```bash
-pip install paho-mqtt
-python3 tools/discover_device.py
+python3 discover_device.py      # macOS / Linux
+python discover_device.py       # Windows
 ```
 
 Paste its output in a new issue. It shows the exact `productType` of each device and, crucially, **whether the device answers on the cloud broker at all**:

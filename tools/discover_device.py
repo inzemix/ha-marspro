@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
 """
-Mars Pro / Mars Hydro — device discovery tool
-============================================
+Mars Pro / Mars Hydro — device discovery tool (zero dependency)
+==============================================================
 
-Read-only probe for Mars Hydro devices. It logs into the Mars Hydro cloud
-API, lists every device on the account, then connects to the MQTT broker and
-asks each device for its state.
+Read-only probe for Mars Hydro devices. It logs into the Mars Hydro cloud API,
+lists every device on the account, then connects to the MQTT broker and asks
+each device for its state.
 
 **It never commands or changes anything.** Only read-only requests are sent
-(`getDevSta`, `getSysSta`, `getConfigFile`) — no `setConfigField`. It is safe
-to run against a live grow setup.
+(`getDevSta`, `getSysSta`, `getConfigFile`) — no `setConfigField`. Safe to run
+against a live grow setup.
+
+**Nothing to install.** This script uses only the Python standard library, so
+it runs anywhere Python 3.8+ is available — no `pip install`, no virtualenv.
+(That matters: Home Assistant OS, Docker containers and many systems either
+have no pip or refuse to install into the system Python.)
 
 Why: this integration only creates entities for device types that have been
-reverse-engineered. If your device does not appear in Home Assistant, run
-this tool and share its output — that is how support for a new device gets
-added.
+reverse-engineered. If your device does not appear in Home Assistant, run this
+tool and share its output — that is how support for a new device gets added.
 
 Usage
 -----
-    pip install paho-mqtt
     python3 discover_device.py
 
-    # or non-interactively:
+    # Windows (if python3 is not found):
+    python discover_device.py
+
+    # non-interactively:
     MARSPRO_EMAIL=you@example.com MARSPRO_PASSWORD=secret python3 discover_device.py
+
+Do NOT run it on a Home Assistant server/appliance: run it on a normal computer
+(Windows, macOS, Linux) that has Python. The script only needs internet access,
+not the HA machine itself.
 
 Options
 -------
@@ -33,7 +43,7 @@ Notes
 -----
 * The Mars Pro broker **rejects wildcard subscriptions** (`MHPRO/#` returns
   "Unspecified error"), so this tool subscribes to each device's exact topic.
-* Credentials are only ever used in memory and are never printed.
+* Credentials are only used in memory and are never printed.
 """
 from __future__ import annotations
 
@@ -41,7 +51,9 @@ import argparse
 import getpass
 import json
 import os
+import socket
 import ssl
+import struct
 import sys
 import time
 import urllib.error
@@ -57,6 +69,171 @@ TOPIC_DOWN = "MHPRO/{model}/API/DOWN/{serial}"
 READONLY_METHODS = ("getDevSta", "getSysSta", "getConfigFile")
 
 
+# --------------------------------------------------------------------------
+# Minimal MQTT 3.1.1 client (standard library only)
+# --------------------------------------------------------------------------
+class MiniMQTT:
+    """Just enough MQTT 3.1.1 to subscribe to a topic and publish a request."""
+
+    CONNECT, CONNACK, PUBLISH, PUBACK = 0x10, 0x20, 0x30, 0x40
+    SUBSCRIBE, SUBACK, PINGREQ, DISCONNECT = 0x80, 0x90, 0xC0, 0xE0
+
+    def __init__(self, host: str, port: int, client_id: str,
+                 username: str, password: str, keepalive: int = 60):
+        self.host, self.port = host, port
+        self.client_id, self.username, self.password = client_id, username, password
+        self.keepalive = keepalive
+        self.sock: ssl.SSLSocket | None = None
+        self._buf = b""
+        self._pid = 0
+
+    # -- low level ---------------------------------------------------------
+    @staticmethod
+    def _encode_length(length: int) -> bytes:
+        out = b""
+        while True:
+            byte = length % 128
+            length //= 128
+            if length:
+                byte |= 0x80
+            out += bytes([byte])
+            if not length:
+                return out
+
+    @staticmethod
+    def _encode_string(text: str) -> bytes:
+        raw = text.encode()
+        return struct.pack("!H", len(raw)) + raw
+
+    def _send(self, packet_type: int, flags: int, payload: bytes) -> None:
+        header = bytes([packet_type | flags]) + self._encode_length(len(payload))
+        self.sock.sendall(header + payload)
+
+    def _recv_packet(self, timeout: float) -> tuple[int, bytes] | None:
+        """Read one MQTT packet. Returns (first_byte, payload).
+
+        The full first byte is returned so callers can read the packet type
+        (upper nibble) AND the flags (lower nibble, which carry the QoS level
+        of a PUBLISH)."""
+        self.sock.settimeout(timeout)
+        while True:
+            while len(self._buf) < 2:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("connection closed by broker")
+                self._buf += chunk
+            multiplier, length, index = 1, 0, 1
+            while True:
+                if index >= len(self._buf):
+                    chunk = self.sock.recv(4096)
+                    if not chunk:
+                        raise ConnectionError("connection closed by broker")
+                    self._buf += chunk
+                byte = self._buf[index]
+                length += (byte & 127) * multiplier
+                multiplier *= 128
+                index += 1
+                if not byte & 0x80:
+                    break
+            total = index + length
+            while len(self._buf) < total:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("connection closed by broker")
+                self._buf += chunk
+            first_byte = self._buf[0]
+            payload = self._buf[index:total]
+            self._buf = self._buf[total:]
+            return first_byte, payload
+
+    # -- public API --------------------------------------------------------
+    def connect(self) -> int:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        raw = socket.create_connection((self.host, self.port), timeout=30)
+        self.sock = ctx.wrap_socket(raw, server_hostname=self.host)
+        flags = 0x02  # clean session
+        payload = self._encode_string(self.client_id)
+        if self.username:
+            flags |= 0x80
+            payload += self._encode_string(self.username)
+        if self.password:
+            flags |= 0x40
+            payload += self._encode_string(self.password)
+        variable = self._encode_string("MQTT") + bytes([0x04, flags]) + struct.pack("!H", self.keepalive)
+        self._send(self.CONNECT, 0, variable + payload)
+
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                packet = self._recv_packet(max(1.0, deadline - time.time()))
+            except (socket.timeout, TimeoutError):
+                continue
+            if packet and (packet[0] & 0xF0) == self.CONNACK:
+                return packet[1][1]  # return code
+        raise TimeoutError("no CONNACK received")
+
+    def subscribe(self, topic: str, qos: int = 0) -> bytes | None:
+        self._pid += 1
+        payload = struct.pack("!H", self._pid) + self._encode_string(topic) + bytes([qos])
+        self._send(self.SUBSCRIBE, 0x02, payload)
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                packet = self._recv_packet(max(1.0, deadline - time.time()))
+            except (socket.timeout, TimeoutError):
+                continue
+            if packet and (packet[0] & 0xF0) == self.SUBACK:
+                return packet[1]
+        return None
+
+    def publish(self, topic: str, message: str, qos: int = 1) -> None:
+        body = self._encode_string(topic)
+        if qos:
+            self._pid += 1
+            body += struct.pack("!H", self._pid)
+        body += message.encode()
+        self._send(self.PUBLISH, qos << 1, body)
+
+    def ping(self) -> None:
+        self._send(self.PINGREQ, 0, b"")
+
+    def collect(self, seconds: float) -> list[tuple[str, str]]:
+        """Listen for PUBLISH packets for `seconds`; return (topic, payload) pairs."""
+        out: list[tuple[str, str]] = []
+        end = time.time() + seconds
+        last_ping = time.time()
+        while time.time() < end:
+            try:
+                packet = self._recv_packet(min(1.0, max(0.1, end - time.time())))
+            except (socket.timeout, TimeoutError):
+                packet = None
+            if packet:
+                first_byte, payload = packet
+                if (first_byte & 0xF0) == self.PUBLISH:
+                    qos = (first_byte & 0x06) >> 1
+                    topic_len = struct.unpack("!H", payload[:2])[0]
+                    topic = payload[2:2 + topic_len].decode(errors="replace")
+                    # a QoS>0 PUBLISH carries a 2-byte packet id after the topic
+                    offset = 2 + topic_len + (2 if qos else 0)
+                    out.append((topic, payload[offset:].decode(errors="replace")))
+            if time.time() - last_ping > max(20, self.keepalive - 10):
+                self.ping()
+                last_ping = time.time()
+        return out
+
+    def close(self) -> None:
+        try:
+            self._send(self.DISCONNECT, 0, b"")
+            self.sock.close()
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------
+# Mars Hydro cloud API (standard library only)
+# --------------------------------------------------------------------------
 def systemdata(token: str | None = None) -> str:
     now = int(time.time() * 1000)
     header = {
@@ -93,7 +270,6 @@ def login(email: str, password: str) -> dict:
 
 
 def fetch_devices(token: str) -> list[dict]:
-    """Devices are bucketed by deviceProductGroup; iterate groups 0..9."""
     devices, seen = [], set()
     for group in range(10):
         try:
@@ -121,73 +297,48 @@ def fetch_devices(token: str) -> list[dict]:
 
 
 def probe_device(dev: dict, user: str, pwd: str, wait: int) -> dict:
-    """Subscribe to the device's exact topic and collect read-only replies."""
-    import paho.mqtt.client as mqtt  # imported here for a cleaner error message
-
     topic_up = TOPIC_UP.format(model=dev["model"], serial=dev["serial"])
     topic_down = TOPIC_DOWN.format(model=dev["model"], serial=dev["serial"])
-    replies: dict[str, dict] = {}
     info = {"topic_up": topic_up, "topic_down": topic_down, "suback": None,
-            "connected": False, "methods": [], "replies": {}}
+            "connected": False, "reply_code": None, "methods": [], "replies": {}}
 
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
-    def on_connect(client, userdata, flags, reason_code, properties=None):
-        if getattr(reason_code, "is_failure", False):
-            info["error"] = f"connect refused: {reason_code}"
-            return
-        info["connected"] = True
-        client.subscribe(topic_up, qos=0)
-
-    def on_subscribe(client, userdata, mid, reason_codes, properties=None):
-        info["suback"] = str(reason_codes[0]) if reason_codes else None
-
-    def on_message(client, userdata, msg):
-        try:
-            payload = json.loads(msg.payload)
-        except Exception:
-            return
-        method = payload.get("method", "unknown")
-        if method in READONLY_METHODS:
-            replies[method] = payload
-
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
-                         client_id=f"marspro-discover-{int(time.time())}",
-                         protocol=mqtt.MQTTv311)
-    client.username_pw_set(user, pwd)
-    client.tls_set_context(ctx)
-    client.on_connect = on_connect
-    client.on_subscribe = on_subscribe
-    client.on_message = on_message
-
+    client = MiniMQTT(MQTT_HOST, MQTT_PORT, f"marspro-discover-{int(time.time())}", user, pwd)
     try:
-        client.connect(MQTT_HOST, MQTT_PORT, 30)
+        code = client.connect()
     except Exception as err:
         info["error"] = f"{type(err).__name__}: {err}"
         return info
 
-    client.loop_start()
-    time.sleep(2)
+    info["connected"] = True
+    info["reply_code"] = code
+    if code != 0:
+        info["error"] = f"broker refused the connection (CONNACK code {code})"
+        return info
+
+    suback = client.subscribe(topic_up, qos=0)
+    info["suback"] = suback.hex() if suback else None
+
     for method in READONLY_METHODS:
         client.publish(topic_down, json.dumps({"method": method,
                                                "params": {"pid": dev["serial"]}}), qos=1)
         time.sleep(0.3)
-    time.sleep(max(wait, 1))
-    client.loop_stop()
-    try:
-        client.disconnect()
-    except Exception:
-        pass
 
-    info["methods"] = sorted(replies)
-    info["replies"] = replies
+    for _, payload in client.collect(max(wait, 1)):
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            continue
+        method = parsed.get("method", "unknown")
+        if method in READONLY_METHODS and method not in info["replies"]:
+            info["replies"][method] = parsed
+
+    client.close()
+    info["methods"] = sorted(info["replies"])
     return info
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Mars Hydro device discovery (read-only)")
+    ap = argparse.ArgumentParser(description="Mars Hydro device discovery (read-only, zero dependency)")
     ap.add_argument("--wait", type=int, default=12,
                     help="seconds to listen for MQTT replies per device (default 12)")
     ap.add_argument("--out", help="write raw payloads to this JSON file")
@@ -196,19 +347,12 @@ def main() -> int:
     email = os.environ.get("MARSPRO_EMAIL") or input("Mars Pro email: ").strip()
     password = os.environ.get("MARSPRO_PASSWORD") or getpass.getpass("Mars Pro password: ")
 
-    try:
-        import paho.mqtt.client  # noqa: F401
-    except ImportError:
-        print("Missing dependency. Install it with:  pip install paho-mqtt")
-        return 1
-
     print("\n[1/3] Logging in to the Mars Hydro cloud...")
     data = login(email, password)
-    token = data["token"]
     print("      OK (token + MQTT credentials received)")
 
     print("[2/3] Listing devices on the account...")
-    devices = fetch_devices(token)
+    devices = fetch_devices(data["token"])
     if not devices:
         print("      No device found. Is your device visible in the Mars Pro app?")
         return 1
@@ -231,15 +375,15 @@ def main() -> int:
         if info.get("error"):
             print(f"    MQTT: FAILED — {info['error']}")
             continue
-        print(f"    subscribed to {info['topic_up']}  -> SUBACK {info['suback']}")
+        print(f"    subscribed to {info['topic_up']}")
         if not info["methods"]:
             print("    No MQTT reply received.")
             print("    => this device does not answer on the cloud broker.")
             print("       It may be Bluetooth-only, or simply offline.")
             continue
         for method, payload in info["replies"].items():
-            data_block = payload.get("data", {})
-            blocks = ", ".join(sorted(data_block)) if isinstance(data_block, dict) else "?"
+            block = payload.get("data", {})
+            blocks = ", ".join(sorted(block)) if isinstance(block, dict) else "?"
             print(f"    + {method}: replied, data blocks = [{blocks}]  "
                   f"({len(json.dumps(payload))} bytes)")
 
@@ -249,7 +393,7 @@ def main() -> int:
         print(f"\nRaw payloads written to {args.out}")
 
     print("\n" + "=" * 72)
-    print("Done. To help add support for your device, share:")
+    print("Done. To help add support for your device, share in the GitHub issue:")
     print("  * the device list above (name + productType)")
     print("  * for each device: did it reply on MQTT? which data blocks?")
     print("  * if you used --out, the JSON file (review it: it contains your readings)")
