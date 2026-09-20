@@ -11,7 +11,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.http.auth import async_sign_path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.const import Platform
+from homeassistant.const import Platform, __version__ as HA_VERSION
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.loader import async_get_integration
@@ -267,7 +267,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if include_supported or d["productType"] not in SUPPORTED_TYPES
         ]
         if not targets:
-            await persistent_notification.async_create(
+            persistent_notification.async_create(
                 hass,
                 _text(hass, "nothing_to_report"),
                 title="Mars Pro",
@@ -380,7 +380,7 @@ async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
         SUPPORTED_TYPES,
         integration.version or "unknown",
         MQTT_HOST,
-        ha_version=hass.config.version,
+        ha_version=HA_VERSION,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     )
 
@@ -417,7 +417,7 @@ def _text(hass: HomeAssistant, key: str, **kwargs) -> str:
 
 async def _async_notify(hass: HomeAssistant, key: str, **kwargs) -> None:
     """Create (or replace) the notification, in the user's language."""
-    await persistent_notification.async_create(
+    persistent_notification.async_create(
         hass,
         _text(hass, key, **kwargs),
         title=_messages(hass).get("title", "Mars Pro"),
@@ -428,7 +428,7 @@ async def _async_notify(hass: HomeAssistant, key: str, **kwargs) -> None:
 async def _async_dismiss_unsupported_notification(hass: HomeAssistant) -> None:
     """Remove the notification once every device is supported."""
     try:
-        await persistent_notification.async_dismiss(hass, UNSUPPORTED_NOTIFICATION_ID)
+        persistent_notification.async_dismiss(hass, UNSUPPORTED_NOTIFICATION_ID)
     except Exception:  # noqa: BLE001 - cosmetic only
         pass
 
