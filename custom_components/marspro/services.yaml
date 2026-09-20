@@ -4,10 +4,15 @@ generate_device_report:
     Probes the devices on your Mars Pro account that this integration does not
     support yet, and writes a report you can send us so support can be added.
 
-    This is strictly read-only: only getDevSta, getSysSta and getConfigFile are
-    sent to the devices - nothing is ever switched on or off, and no
-    configuration is written. The report is saved in your Home Assistant
-    configuration folder and a notification links to it.
+    Read-only by default: only getDevSta, getSysSta and getConfigFile are sent
+    to the devices - nothing is ever switched on or off, and no configuration
+    is written. The report is saved in your Home Assistant configuration folder
+    and a notification links to it.
+
+    The report also lists the actuators the device reports (each one becomes a
+    Home Assistant entity), the exact requests that were sent, and a few
+    questions about your setup - so support can usually be added without any
+    further back and forth.
 
     A report is also generated automatically when an unsupported device is
     detected, so you normally never need to call this action yourself.
@@ -16,6 +21,17 @@ generate_device_report:
       name: Include supported devices
       description: >
         Also probe the devices that already work, for comparison. Rarely needed.
+      required: false
+      default: false
+      selector:
+        boolean:
+    test_writes:
+      name: Test write commands (experimental)
+      description: >
+        Also check whether the device accepts commands. This sends
+        setConfigField with the values the device itself just reported, so
+        nothing changes state - it exists to prove the device is controllable
+        before spending time on an implementation. Leave off unless asked.
       required: false
       default: false
       selector:

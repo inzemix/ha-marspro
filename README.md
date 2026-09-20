@@ -28,13 +28,19 @@ A controller that is not listed above can only be supported once its protocol ha
 
 **You have nothing to install and nothing to run.** When the integration finds a device it does not support yet, it probes it once and shows a notification in Home Assistant with a link to the report:
 
-1. It asks the device to describe itself — strictly read-only (`getDevSta`, `getSysSta`, `getConfigFile`). **Nothing is ever switched on or off.**
+1. It asks the device to describe itself — strictly read-only by default (`getDevSta`, `getSysSta`, `getConfigFile`). **Nothing is ever switched on or off.**
 2. The report is written to `marspro_device_report.txt` in your Home Assistant configuration folder and served through a **private link that expires after 7 days**.
 3. Send it to us in an issue and support can be added.
 
+The report is built to avoid a long back and forth, so it also contains:
+
+- the **actuators the device reports** (each one becomes a Home Assistant entity) and how they are driven (`setConfigField`);
+- the **exact requests** that were sent, and which ones the device did **not** answer;
+- a short **checklist of questions** about your setup to fill in.
+
 **Please review the report before sending it**: it contains your device names, serial numbers and their raw state payloads (never your credentials).
 
-You can also run it on demand: **Developer tools → Actions → `marspro.generate_device_report`**.
+You can also run it on demand: **Developer tools → Actions → `marspro.generate_device_report`**. It accepts an optional experimental *Test write commands* switch, which checks whether the device accepts commands by rewriting the values it just reported (nothing changes state) — leave it off unless we ask you to turn it on.
 
 What the report answers is the key question: does the device answer on the cloud broker at all?
 

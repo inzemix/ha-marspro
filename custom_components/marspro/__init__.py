@@ -46,6 +46,7 @@ AUTO_SCAN_WAIT_SECONDS = 12
 SERVICE_GENERATE_REPORT_SCHEMA = vol.Schema(
     {
         vol.Optional("include_supported", default=False): cv.boolean,
+        vol.Optional("test_writes", default=False): cv.boolean,
         vol.Optional("wait_seconds", default=12): vol.All(
             vol.Coerce(int), vol.Range(min=3, max=60)
         ),
@@ -261,6 +262,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         Read-only: only getDevSta / getSysSta / getConfigFile are sent.
         """
         include_supported = call.data["include_supported"]
+        test_writes = call.data["test_writes"]
         wait_seconds = call.data["wait_seconds"]
 
         targets = [
@@ -281,7 +283,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             len(targets),
         )
         try:
-            await _async_probe_and_write_report(hass, entry, targets, wait_seconds)
+            await _async_probe_and_write_report(hass, entry, targets, wait_seconds,
+                                                test_writes)
         except Exception as err:  # noqa: BLE001
             _LOGGER.exception("Mars Pro: device report failed")
             await _async_notify(
@@ -361,8 +364,13 @@ async def _async_auto_scan(hass: HomeAssistant, entry: ConfigEntry,
 
 
 async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
-                                        targets: list[dict], wait_seconds: int) -> str:
-    """Probe the given devices (read-only) and write the report. Returns its path."""
+                                        targets: list[dict], wait_seconds: int,
+                                        test_writes: bool = False) -> str:
+    """Probe the given devices and write the report. Returns its path.
+
+    Read-only unless `test_writes` is set: the write probe only rewrites the
+    values the device itself just reported, so nothing changes state.
+    """
     probes: dict[str, dict] = {}
     for device in targets:
         probes[device["serial"]] = await hass.async_add_executor_job(
@@ -372,6 +380,7 @@ async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
             entry.data["mqtt_pwd"],
             device,
             wait_seconds,
+            test_writes,
         )
 
     integration = await async_get_integration(hass, DOMAIN)

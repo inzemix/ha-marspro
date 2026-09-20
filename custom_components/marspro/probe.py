@@ -1,4 +1,4 @@
-"""Read-only device probing for the Mars Pro integration.
+"""Device probing for the Mars Pro integration.
 
 When Home Assistant reports a device that this integration does not support yet,
 there is nothing to display and nothing to control — and no way for a user to
@@ -6,9 +6,11 @@ tell us what the device actually exposes. This module fills that gap: it asks
 the device for its state and packs everything needed to add support into a
 report the user can paste into a GitHub issue.
 
-**Strictly read-only.** Only `getDevSta`, `getSysSta` and `getConfigFile` are
-sent. No `setConfigField`, ever: this runs against hardware we do not
-understand yet, so it must never command anything.
+**Read-only by default.** Only `getDevSta`, `getSysSta` and `getConfigFile` are
+sent. An optional write probe (`test_writes=True`) rewrites the *current* values
+of the actuators the device reports about itself, so nothing changes state — it
+exists so a maintainer can see whether the device accepts commands, without
+asking the volunteer for a second round trip.
 
 The MQTT layer is implemented on the Python standard library (socket + ssl).
 That is deliberate: adding a dependency for a diagnostic feature would be a
@@ -27,8 +29,33 @@ MQTT_PORT = 8883
 TOPIC_UP = "MHPRO/{model}/API/UP/{serial}"
 TOPIC_DOWN = "MHPRO/{model}/API/DOWN/{serial}"
 
-# Read-only requests only. Keep this list short and explicitly harmless.
+# Read-only requests, sent first and always. Keep this list short and harmless.
 READONLY_METHODS = ("getDevSta", "getSysSta", "getConfigFile")
+
+# Actuator blocks known to exist on this ecosystem. A device reports the subset
+# it has; each one becomes one Home Assistant entity.
+ACTUATOR_HINTS = {
+    "light": "light entity (on/off + brightness 0-100 via mLevel)",
+    "light2": "light entity (second dimmer channel)",
+    "blower": "fan entity (inline blower)",
+    "fan": "fan entity (oscillating fan)",
+    "heater": "switch entity",
+    "humidifier": "switch entity",
+    "dehumidifier": "switch entity",
+    "watering": "switch entity",
+    "device1": "switch entity (generic outlet 1)",
+    "device2": "switch entity (generic outlet 2)",
+    "outlet": "power data + the global master switch (outlet.masterOn)",
+}
+
+# Example of a command, kept here so the report is self-contained: this is
+# exactly what the integration publishes for a supported device.
+WRITE_EXAMPLE = (
+    '{"method": "setConfigField", "params": {"pid": "<serial>",\n'
+    '     "keyPath": ["device", "light"], "light": {"mOnOff": 1}}}\n'
+    '     (brightness: {"mLevel": 0-100}, master: keyPath ["outlet"],\n'
+    '      {"outlet": {"masterOn": 1}})'
+)
 
 
 class MiniMQTT:
@@ -184,9 +211,42 @@ class MiniMQTT:
             pass
 
 
+def _echo_payloads(serial: str, config_reply: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
+    """Build harmless `setConfigField` payloads that rewrite the current values.
+
+    Only the two writable fields of this ecosystem are echoed (`mOnOff`,
+    `mLevel`), and only for blocks the device itself reports — so a device that
+    accepts the command will end up in exactly the state it was already in.
+
+    The global master (`outlet.masterOn`) is deliberately NOT touched: it is a
+    recovery mechanism, not an actuator to poke at.
+    """
+    data = config_reply.get("data")
+    config_file = data.get("configFile") if isinstance(data, dict) else None
+    device_blocks = config_file.get("device") if isinstance(config_file, dict) else None
+    if not isinstance(device_blocks, dict):
+        return []
+
+    out: list[tuple[str, str, dict[str, Any]]] = []
+    for block, fields in sorted(device_blocks.items()):
+        if not isinstance(fields, dict):
+            continue
+        echo = {k: fields[k] for k in ("mOnOff", "mLevel") if k in fields}
+        if not echo:
+            continue
+        payload = {"method": "setConfigField",
+                   "params": {"pid": serial, "keyPath": ["device", block], block: echo}}
+        out.append((block, json.dumps(payload), payload))
+    return out
+
+
 def probe_device(host: str, user: str, password: str, device: dict[str, Any],
-                 wait: int = 12) -> dict[str, Any]:
-    """Ask a single device for its state. Never sends a command."""
+                 wait: int = 12, test_writes: bool = False) -> dict[str, Any]:
+    """Ask a single device for its state.
+
+    Read-only unless `test_writes` is set, in which case the current values of
+    the reported actuators are written back unchanged (see `_echo_payloads`).
+    """
     model = device.get("model") or device.get("productType", "")
     serial = device.get("serial", "")
     result: dict[str, Any] = {
@@ -196,7 +256,10 @@ def probe_device(host: str, user: str, password: str, device: dict[str, Any],
         "topic_up": TOPIC_UP.format(model=model, serial=serial),
         "topic_down": TOPIC_DOWN.format(model=model, serial=serial),
         "connected": False,
+        "requests": {},
         "replies": {},
+        "not_answered": [],
+        "write_tests": [],
         "error": None,
     }
 
@@ -217,8 +280,9 @@ def probe_device(host: str, user: str, password: str, device: dict[str, Any],
         return result
 
     for method in READONLY_METHODS:
-        client.publish(result["topic_down"],
-                       json.dumps({"method": method, "params": {"pid": serial}}), qos=1)
+        request = {"method": method, "params": {"pid": serial}}
+        result["requests"][method] = json.dumps(request)
+        client.publish(result["topic_down"], json.dumps(request), qos=1)
         time.sleep(0.3)
 
     try:
@@ -232,9 +296,31 @@ def probe_device(host: str, user: str, password: str, device: dict[str, Any],
                 result["replies"][method] = parsed
     except Exception as err:  # noqa: BLE001
         result["error"] = f"collect failed: {type(err).__name__}: {err}"
-    finally:
-        client.close()
 
+    result["not_answered"] = [m for m in READONLY_METHODS if m not in result["replies"]]
+
+    # Optional: prove whether the device accepts commands, without changing
+    # anything — every value sent is the value the device just reported.
+    if test_writes and result["replies"].get("getConfigFile"):
+        try:
+            for block, sent, _ in _echo_payloads(serial, result["replies"]["getConfigFile"]):
+                client.publish(result["topic_down"], sent, qos=1)
+                result["write_tests"].append({"block": block, "sent": sent, "reply": None})
+                time.sleep(0.3)
+            for raw in client.collect(max(wait, 1)):
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    continue
+                if parsed.get("method") == "setConfigField":
+                    for test in result["write_tests"]:
+                        if test["reply"] is None:
+                            test["reply"] = parsed
+                            break
+        except Exception as err:  # noqa: BLE001
+            result["error"] = (result["error"] or "") + f" write probe failed: {err}"
+
+    client.close()
     return result
 
 
@@ -253,6 +339,30 @@ def summarise_block(method: str, payload: dict[str, Any]) -> list[str]:
     return lines or ["      (empty data block)"]
 
 
+def detected_actuators(probe: dict[str, Any]) -> list[tuple[str, str]]:
+    """Actuator blocks this device reports, with what each one would become.
+
+    This is the "how do I turn this into entities" answer: every block listed
+    here is one Home Assistant entity, driven through `setConfigField`.
+    """
+    blocks: set[str] = set()
+    dev_reply = probe.get("replies", {}).get("getDevSta", {})
+    if isinstance(dev_reply.get("data"), dict):
+        blocks.update(dev_reply["data"].keys())
+    config_reply = probe.get("replies", {}).get("getConfigFile", {})
+    config_data = config_reply.get("data")
+    if isinstance(config_data, dict):
+        config_file = config_data.get("configFile")
+        if isinstance(config_file, dict) and isinstance(config_file.get("device"), dict):
+            blocks.update(config_file["device"].keys())
+
+    out = []
+    for block in sorted(blocks):
+        if block in ACTUATOR_HINTS:
+            out.append((block, ACTUATOR_HINTS[block]))
+    return out
+
+
 def build_report(devices: list[dict[str, Any]], probes: dict[str, dict[str, Any]],
                  supported_types: tuple[str, ...], integration_version: str,
                  host: str, ha_version: str = "unknown", generated_at: str = "") -> str:
@@ -268,8 +378,10 @@ def build_report(devices: list[dict[str, Any]], probes: dict[str, dict[str, Any]
     add(f"MQTT broker      : {host}:{MQTT_PORT}")
     add(f"Supported types  : {', '.join(supported_types)}")
     add("")
-    add("This report is read-only: only getDevSta / getSysSta / getConfigFile were")
-    add("sent. No command was issued to any device. Credentials are NOT included.")
+    add("Only getDevSta / getSysSta / getConfigFile are sent by default: no")
+    add("command is issued and no configuration is written. If the write probe")
+    add("was enabled, it only rewrites the values the device just reported, so")
+    add("nothing changes state. Credentials are NOT included in this report.")
     add("")
     add("Paste this whole report into the GitHub issue:")
     add("https://github.com/inzemix/ha-marspro/issues")
@@ -305,11 +417,45 @@ def build_report(devices: list[dict[str, Any]], probes: dict[str, dict[str, Any]
             add("                  through this integration.")
         else:
             add(f"MQTT probe      : OK — replied to {', '.join(sorted(probe['replies']))}")
+            if probe.get("not_answered"):
+                add(f"                  no reply from: {', '.join(probe['not_answered'])}")
             for method, payload in probe["replies"].items():
                 add(f"    {method}:")
                 lines.extend(summarise_block(method, payload))
+
+            actuators = detected_actuators(probe)
+            if actuators:
+                add("    ACTUATORS DETECTED (each one becomes a Home Assistant entity):")
+                for block, what in actuators:
+                    add(f"      {block:<14} -> {what}")
+                add("      Commands use setConfigField, same MQTT topics:")
+                for line in WRITE_EXAMPLE.splitlines():
+                    add(f"      {line}")
+
+            if probe.get("write_tests"):
+                add("    WRITE PROBE (values rewritten unchanged, nothing switched):")
+                for test in probe["write_tests"]:
+                    reply = test.get("reply")
+                    verdict = "no reply to the command"
+                    if isinstance(reply, dict):
+                        verdict = f"code={reply.get('code')} msg={reply.get('msg')!r}"
+                    add(f"      {test['block']:<14} -> {verdict}")
+
+        if probe.get("requests"):
+            add("    REQUESTS SENT (exact payloads, topic MHPRO/.../API/DOWN/<serial>):")
+            for method in sorted(probe["requests"]):
+                add(f"      {probe['requests'][method]}")
         add("")
 
+    add("-" * 72)
+    add("WHAT WE STILL NEED FROM YOU (please answer in the issue)")
+    add("  1. What is plugged into each outlet of this controller (light, fan,")
+    add("     humidifier, pump…), and what did the Mars Pro app let you control?")
+    add("  2. Does the app offer a brightness/dimming slider or a 0-10V / RJ12")
+    add("     option for this device?")
+    add("  3. Anything the app can do that this report does not show (schedules,")
+    add("     alarms, calibration…)?")
+    add("")
     add("-" * 72)
     add("RAW PAYLOADS (full JSON, for the maintainer)")
     add(json.dumps({d.get("serial"): probes.get(d.get("serial", ""), {})
