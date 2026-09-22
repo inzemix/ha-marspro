@@ -88,6 +88,24 @@ class MarsProAPI:
                     "productType": ptype,
                     "name": d.get("deviceName", serial),
                     "id": d.get("id"),
+                    # Diagnostic fields. The device list carries far more than the
+                    # entities need, and that is exactly what is missing when a
+                    # device type turns up that nobody has seen before: without
+                    # them we can only guess why a device answers nothing. They
+                    # are read-only, and account identifiers (userId) are
+                    # deliberately NOT carried over.
+                    "connectStatus": d.get("connectStatus"),
+                    "isWifiDevice": d.get("isWifiDevice"),
+                    "isNetDevice": d.get("isNetDevice"),
+                    "deviceWifi": d.get("deviceWifi"),
+                    "deviceBluetooth": d.get("deviceBluetooth"),
+                    "deviceGroup": d.get("deviceGroup"),
+                    "deviceProductGroup": d.get("deviceProductGroup"),
+                    "pcode": d.get("pcode"),
+                    "productModelCode": d.get("productModelCode"),
+                    "hardwareVersion": d.get("hardwareVersion"),
+                    "deviceInfo": d.get("deviceInfo"),
+                    "addTime": d.get("addTime"),
                 })
         self._devices = devices
         return devices

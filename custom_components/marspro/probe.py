@@ -251,8 +251,14 @@ def probe_device(host: str, user: str, password: str, device: dict[str, Any],
     serial = device.get("serial", "")
     result: dict[str, Any] = {
         # only the fields a maintainer needs: no account-level ids in the report
-        "device": {key: device.get(key) for key in
-                   ("name", "serial", "productType", "model", "firmware", "connected")},
+        "device": {key: device.get(key) for key in (
+            "name", "serial", "productType", "model", "firmware", "connected",
+            # cloud-side metadata: tells us whether the device is even reachable
+            # from the cloud, without having to guess
+            "connectStatus", "isWifiDevice", "isNetDevice", "deviceWifi",
+            "deviceBluetooth", "deviceGroup", "deviceProductGroup", "pcode",
+            "productModelCode", "hardwareVersion", "deviceInfo", "addTime",
+        )},
         "topic_up": TOPIC_UP.format(model=model, serial=serial),
         "topic_down": TOPIC_DOWN.format(model=model, serial=serial),
         "connected": False,
@@ -396,6 +402,27 @@ def build_report(devices: list[dict[str, Any]], probes: dict[str, dict[str, Any]
         add(f"MQTT model      : {device.get('model')}  (topic MHPRO/{device.get('model')}/API/...)")
         add(f"serial          : {serial}")
 
+        # Cloud-side metadata straight from the account's device list. This is
+        # what tells us whether a device is reachable from the cloud at all —
+        # before, we could only observe that it answered nothing and guess why.
+        cloud = []
+        for key in ("connectStatus", "isWifiDevice", "isNetDevice", "deviceWifi",
+                    "deviceBluetooth", "deviceGroup", "deviceProductGroup",
+                    "pcode", "productModelCode", "hardwareVersion", "addTime"):
+            value = device.get(key)
+            if value not in (None, ""):
+                cloud.append(f"{key}={value}")
+        if cloud:
+            add("cloud metadata  : " + "   ".join(cloud))
+        info = device.get("deviceInfo")
+        if info:
+            add(f"deviceInfo      : {info}")
+        add("                  (the lines above are copied verbatim from the"
+            " account's device list:")
+        add("                  they are the only cloud-side facts we have, and we"
+            " do not interpret")
+        add("                  them — their exact meaning is not documented)")
+
         # the device list rarely carries the firmware; getSysSta does
         sys_reply = probe.get("replies", {}).get("getSysSta", {})
         sys_block = sys_reply.get("data", {}).get("sys", {}) if isinstance(
@@ -411,10 +438,10 @@ def build_report(devices: list[dict[str, Any]], probes: dict[str, dict[str, Any]
             add(f"MQTT probe      : FAILED — {probe['error']}")
         elif not probe.get("replies"):
             add("MQTT probe      : connected and subscribed, but the device never")
-            add("                  answered any request. It most likely communicates")
-            add("                  over Bluetooth only and exposes nothing on the")
-            add("                  cloud broker — such a device cannot be supported")
-            add("                  through this integration.")
+            add("                  answered any request. It exposes nothing on the")
+            add("                  MQTT broker we know about. That may mean it is")
+            add("                  Bluetooth-only, or that it uses a channel we have")
+            add("                  not identified yet — see the cloud metadata above.")
         else:
             add(f"MQTT probe      : OK — replied to {', '.join(sorted(probe['replies']))}")
             if probe.get("not_answered"):

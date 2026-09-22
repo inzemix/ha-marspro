@@ -401,6 +401,23 @@ async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
     Read-only unless `test_writes` is set: the write probe only rewrites the
     values the device itself just reported, so nothing changes state.
     """
+    # Refresh the account's device list so the cloud metadata in the report
+    # (connectStatus, deviceInfo, …) describes *now*, not the moment Home
+    # Assistant started. A report generated days after a restart would
+    # otherwise carry stale values — and connectStatus is exactly what tells us
+    # whether a device is reachable at all.
+    try:
+        api = MarsProAPI(entry.data["email"], entry.data["password"])
+        await hass.async_add_executor_job(api.login)
+        fresh = {d["serial"]: d for d in
+                 await hass.async_add_executor_job(api.fetch_devices)}
+        targets = [{**d, **fresh.get(d["serial"], {})} for d in targets]
+    except Exception as err:  # noqa: BLE001 - the report must still be written
+        _LOGGER.warning(
+            "Mars Pro: could not refresh the device list (%s: %s) — the report "
+            "will use the values read at startup", type(err).__name__, err
+        )
+
     probes: dict[str, dict] = {}
     for device in targets:
         probes[device["serial"]] = await hass.async_add_executor_job(

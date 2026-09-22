@@ -25,12 +25,16 @@ OS_VERSION = "14"
 DEVICE_IHUB10 = "MH-IHUB10"
 DEVICE_CB43 = "MH-CB43"
 
-# Device types that are known to work as intended but expose NO entities through
-# the cloud API: grow-light fixtures are BLE-only (driven from the Mars Pro app
-# over Bluetooth), so there is no MQTT endpoint exposing sensors or actuators.
-# These are reported discreetly at setup — not as a warning, they are expected.
+# Device types that are known to expose NO entities through this integration:
+# they never answer an MQTT request, so there is nothing to read and nothing to
+# write. These are reported discreetly at setup — they are expected, not errors.
+#
+# NOTE: MZU001 is shared by more than one product (grow-light fixtures, but also
+# dimmer boxes belonging to other users), so this must describe the *observed
+# behaviour* rather than a product family — the earlier wording ("BLE-only
+# fixture") asserted more than was ever verified.
 KNOWN_NO_ENTITY_TYPES = {
-    "MZU001": "grow-light fixture (BLE-only, no cloud/MQTT actuators)",
+    "MZU001": "no reply to MQTT requests (no cloud actuators via this integration)",
 }
 
 # Device support report (service marspro.generate_device_report).
