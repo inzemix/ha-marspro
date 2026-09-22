@@ -225,18 +225,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def on_mqtt_reconnect():
         """Called after successful MQTT reconnection — restore masterOn + poll."""
-        _LOGGER.info("Mars Pro MQTT reconnected — restoring masterOn")
         for dev in devices:
             # Only the iHub Pro has the masterOn outlet. Never write to a device
             # we do not understand: a dimmer box answers getDevSta too, and
             # there is no reason to push it a command whose effect we cannot
             # predict. Reading stays unconditional.
             if dev["productType"] == DEVICE_IHUB10:
+                _LOGGER.info(
+                    "Mars Pro MQTT reconnected — restoring masterOn on %s (the only "
+                    "device that has that outlet)", dev["serial"]
+                )
                 mqtt.publish(dev["serial"], dev["model"], "setConfigField",
                              {"pid": dev["serial"], "keyPath": ["outlet"],
                               "outlet": {"masterOn": 1}})
             mqtt.publish(dev["serial"], dev["model"], "getDevSta",
                          {"pid": dev["serial"]})
+        # Log per device, never a blanket message: an unconditional
+        # "restoring masterOn" line once made a user believe we were writing to
+        # a dimmer box we only ever poll.
+        _LOGGER.debug("Mars Pro MQTT reconnected — %d device(s) polled (read-only)",
+                      len(devices))
 
     mqtt = MarsProMQTT(
         hass,
