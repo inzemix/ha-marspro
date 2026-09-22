@@ -174,13 +174,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     # Entities are only created for the controller types below (see the platform
-    # modules). Every other device is probed once, read-only, so support can be
-    # added — including the types listed in KNOWN_NO_ENTITY_TYPES: a productType
-    # is shared by several products (MZU001 covers both the FC grow lights,
-    # which stay silent, and the MH-DIMBOXPRO dimmer box, which answers), so the
-    # device itself has to be asked before concluding anything.
-    unsupported: list[dict] = []      # genuinely unknown types
-    to_probe: list[dict] = []         # everything that is not supported yet
+    # modules). A type we do not know at all is probed automatically, read-only,
+    # so support can be added — that is the whole point of this diagnostic.
+    #
+    # Types listed in KNOWN_NO_ENTITY_TYPES are deliberately NOT probed on
+    # startup any more. Probing opens a second connection to the vendor's MQTT
+    # broker for a device that already works in the vendor app, and an
+    # unsupported device does not justify risking a working setup: one user
+    # reported losing dimming control in the Mars Hydro app right after a
+    # release that started probing his device. The report can still be produced
+    # on demand with the marspro.generate_device_report action.
+    unsupported: list[dict] = []
     for d in devices:
         ptype = d["productType"]
         if ptype in SUPPORTED_TYPES:
@@ -188,14 +192,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Mars Pro: discovered device '%s' serial=%s productType=%s model=%s",
                 d["name"], d["serial"], ptype, d["model"],
             )
-            continue
-
-        to_probe.append(d)
-        if ptype in KNOWN_NO_ENTITY_TYPES:
+        elif ptype in KNOWN_NO_ENTITY_TYPES:
             _LOGGER.info(
-                "Mars Pro: device '%s' (productType=%s, serial=%s) is a %s — "
-                "probing it once anyway (read-only) to be sure.",
+                "Mars Pro: device '%s' (productType=%s, serial=%s) is a %s — no "
+                "entities by design, and not probed automatically. Run the %s "
+                "action if you want a diagnostic report.",
                 d["name"], ptype, d["serial"], KNOWN_NO_ENTITY_TYPES[ptype],
+                f"{DOMAIN}.{SERVICE_GENERATE_REPORT}",
             )
         else:
             unsupported.append(d)
@@ -330,11 +333,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # nothing to install or run, and tell them where to send the result. This
     # runs as a background task: the probe waits ~12 s per device and must never
     # delay the integration setup.
-    if to_probe:
+    if unsupported:
         entry.async_create_background_task(
             hass,
-            _async_auto_scan(hass, entry, to_probe,
-                             unknown_serials={d["serial"] for d in unsupported}),
+            _async_auto_scan(hass, entry, unsupported),
             name=f"{DOMAIN}_auto_scan",
         )
     else:
@@ -354,24 +356,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_auto_scan(hass: HomeAssistant, entry: ConfigEntry,
-                           targets: list[dict],
-                           unknown_serials: set[str] | None = None) -> None:
-    """Probe the devices we cannot support yet, and point the user to the report.
+                           targets: list[dict]) -> None:
+    """Probe the unsupported devices automatically, then point the user to the report.
 
-    A device is announced to the user when its type is genuinely unknown, or
-    when it actually answered the probe — an answer means there is something to
-    work with, whatever the type says. A silent device whose type is listed in
-    KNOWN_NO_ENTITY_TYPES (the FC grow lights) stays quiet: a notification on
-    every restart for hardware that cannot be reached would only be noise.
+    Only genuinely unknown types reach this function: types listed in
+    KNOWN_NO_ENTITY_TYPES are no longer probed on startup (see
+    `async_setup_entry`), because opening a second broker connection for a
+    device that already works in the vendor app is not a risk worth taking.
     """
-    unknown_serials = unknown_serials or set()
     names = _device_names(targets)
     _LOGGER.info(
         "Mars Pro: automatically probing %d unsupported device(s) (read-only)",
         len(targets),
     )
     try:
-        path, probes = await _async_probe_and_write_report(
+        await _async_probe_and_write_report(
             hass, entry, targets, AUTO_SCAN_WAIT_SECONDS
         )
         link = _report_link(hass)
@@ -383,39 +382,13 @@ async def _async_auto_scan(hass: HomeAssistant, entry: ConfigEntry,
         )
         return
 
-    answered = {serial for serial, probe in probes.items() if probe.get("replies")}
-
-    # A type we thought we knew, but the device answers: worth telling the user,
-    # their report is what a maintainer needs.
-    for device in targets:
-        if device["serial"] in answered and device["serial"] not in unknown_serials:
-            _LOGGER.warning(
-                "Mars Pro: device '%s' (productType=%s) answered the probe — it "
-                "is reachable after all, the report is worth sending.",
-                device["name"], device["productType"],
-            )
-
-    notify_for = [d for d in targets
-                  if d["serial"] in unknown_serials or d["serial"] in answered]
-    if not notify_for:
-        _LOGGER.info(
-            "Mars Pro: no probed device answered — nothing to report to the user "
-            "(report kept in %s)", path,
-        )
-        await _async_dismiss_unsupported_notification(hass)
-        return
-
-    await _async_notify(hass, "ready", names=_device_names(notify_for),
-                        link=link, issues=ISSUES_URL)
+    await _async_notify(hass, "ready", names=names, link=link, issues=ISSUES_URL)
 
 
 async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
                                         targets: list[dict], wait_seconds: int,
-                                        test_writes: bool = False) -> tuple[str, dict]:
-    """Probe the given devices and write the report.
-
-    Returns (path, probes) so the caller can tell which devices actually
-    answered.
+                                        test_writes: bool = False) -> str:
+    """Probe the given devices and write the report. Returns its path.
 
     Read-only unless `test_writes` is set: the write probe only rewrites the
     values the device itself just reported, so nothing changes state.
@@ -446,7 +419,7 @@ async def _async_probe_and_write_report(hass: HomeAssistant, entry: ConfigEntry,
     path = hass.config.path(REPORT_FILENAME)
     await hass.async_add_executor_job(_write_report, path, report)
     _LOGGER.warning("Mars Pro: device support report written to %s", path)
-    return path, probes
+    return path
 
 
 def _report_link(hass: HomeAssistant) -> str:

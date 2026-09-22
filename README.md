@@ -42,6 +42,8 @@ The report is built to avoid a long back and forth, so it also contains:
 
 You can also run it on demand: **Developer tools → Actions → `marspro.generate_device_report`**. It accepts an optional experimental *Test write commands* switch, which checks whether the device accepts commands by rewriting the values it just reported (nothing changes state) — leave it off unless we ask you to turn it on.
 
+Note: a type already known to produce no entities (for example a grow light that only talks Bluetooth) is **not** probed automatically — opening a second connection to the vendor's broker for a device that already works in the Mars Pro app is not a risk worth taking. Use the action above if you want a report for such a device.
+
 What the report answers is the key question: does the device answer on the cloud broker at all?
 
 - **It answers** (like the iHub Pro): its data blocks become visible, and support can be added.
