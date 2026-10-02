@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN, ACTUATORS_IHUB10, ACTUATORS_CB43, DEVICE_IHUB10, DEVICE_CB43
+from .actuators import async_set_config_field
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,22 +62,21 @@ class MarsProSwitch(SwitchEntity):
         return self._serial in self._state["live_data"]
 
     async def async_turn_on(self, **kwargs):
-        mqtt = self._state.get("mqtt")
-        if mqtt:
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["device", self._actuator],
-                 self._actuator: {"mOnOff": 1}}
-            )
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["device", self._actuator],
+            {"mOnOff": 1},
+        )
 
     async def async_turn_off(self, **kwargs):
-        mqtt = self._state.get("mqtt")
-        if mqtt:
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["device", self._actuator],
-                 self._actuator: {"mLevel": 0}}
-            )
+        # "Off" means the mOnOff key is *absent* on this platform: writing a 0
+        # is not the same thing, so the field is dropped instead.
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["device", self._actuator],
+            {"mLevel": 0},
+            drop=("mOnOff",),
+        )
 
 
 class MarsProMasterSwitch(SwitchEntity):
@@ -115,20 +115,16 @@ class MarsProMasterSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Réveille l'iHub (masterOn=1)."""
-        mqtt = self._state.get("mqtt")
-        if mqtt:
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["outlet"],
-                 "outlet": {"masterOn": 1}}
-            )
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["outlet"],
+            {"masterOn": 1},
+        )
 
     async def async_turn_off(self, **kwargs):
         """Coupe l'iHub globalement (masterOn=0)."""
-        mqtt = self._state.get("mqtt")
-        if mqtt:
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["outlet"],
-                 "outlet": {"masterOn": 0}}
-            )
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["outlet"],
+            {"masterOn": 0},
+        )

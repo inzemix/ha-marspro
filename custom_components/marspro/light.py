@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN, ACTUATORS_IHUB10, ACTUATORS_CB43, DEVICE_IHUB10, DEVICE_CB43
+from .actuators import async_set_config_field
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,23 +84,21 @@ class MarsProLight(LightEntity):
 
         async def _do_send():
             self._last_sent_level = new_level
-            mqtt = self._state.get("mqtt")
-            if not mqtt:
-                return
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["device", self._actuator],
-                 self._actuator: {"mOnOff": 1, "mLevel": new_level}}
+            await async_set_config_field(
+                self.hass, self._state, self._serial, self._model,
+                ["device", self._actuator],
+                {"mOnOff": 1, "mLevel": new_level},
             )
 
         self._debounce = self.hass.loop.call_later(0.5,
             lambda: self.hass.async_create_task(_do_send()))
 
     async def async_turn_off(self, **kwargs):
-        mqtt = self._state.get("mqtt")
-        if mqtt:
-            await self.hass.async_add_executor_job(
-                mqtt.publish, self._serial, self._model, "setConfigField",
-                {"pid": self._serial, "keyPath": ["device", self._actuator],
-                 self._actuator: {"mLevel": 0}}
-            )
+        # Off is expressed by the *absence* of mOnOff on this platform, so that
+        # field is dropped while every other field of the object is preserved.
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["device", self._actuator],
+            {"mLevel": 0},
+            drop=("mOnOff",),
+        )

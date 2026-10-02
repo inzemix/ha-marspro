@@ -22,6 +22,10 @@ class MarsProMQTT:
         self._on_reconnect_callback = on_reconnect
         self._client: mqtt.Client | None = None
         self._reconnect_delay = RECONNECT_BASE
+        # Pending request waiters, keyed by (serial, method). See `request()`:
+        # a command has to read the current configuration before writing it
+        # back, because the broker replaces the object instead of merging it.
+        self._waiters: dict[tuple[str, str], list[asyncio.Future]] = {}
 
     def _build_client(self) -> mqtt.Client:
         client = mqtt.Client(
@@ -70,7 +74,25 @@ class MarsProMQTT:
             data = json.loads(msg.payload)
         except Exception:
             return
-        self.hass.loop.call_soon_threadsafe(self._callback, msg.topic, data)
+        self.hass.loop.call_soon_threadsafe(self._deliver, msg.topic, data)
+
+    def _deliver(self, topic: str, data: dict):
+        """Resolve a pending request, then hand the message to the integration.
+
+        Runs on the event loop. A reply is matched on (device, method) — the
+        broker puts both in the payload (`pid` and `method`), the topic is kept
+        as a fallback.
+        """
+        method = data.get("method", "")
+        serial = data.get("pid")
+        if not serial:
+            parts = topic.split("/")
+            serial = parts[4] if len(parts) >= 5 else None
+        if serial and method:
+            for future in self._waiters.pop((serial, method), []):
+                if not future.done():
+                    future.set_result(data)
+        self._callback(topic, data)
 
     def _on_disconnect(self, client, userdata, flags, rc, props=None):
         if rc != 0:
@@ -103,6 +125,37 @@ class MarsProMQTT:
         topic = MQTT_TOPIC_DOWN.format(model=model, serial=serial)
         payload = {"method": method, "params": params or {}}
         self._client.publish(topic, json.dumps(payload), qos=1)
+
+    async def request(self, serial: str, model: str, method: str,
+                      params: dict | None = None, timeout: float = 3.0) -> dict | None:
+        """Publish a request and wait for the device's reply.
+
+        Returns the reply payload, or None when the device stays silent within
+        `timeout`. Never raises: a command must not be held hostage by a slow or
+        mute device — the caller decides what to do with a None.
+        """
+        if not self._client:
+            return None
+        key = (serial, method)
+        future: asyncio.Future = self.hass.loop.create_future()
+        self._waiters.setdefault(key, []).append(future)
+        try:
+            await self.hass.async_add_executor_job(
+                self.publish, serial, model, method, params
+            )
+            return await asyncio.wait_for(future, timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            _LOGGER.debug("No %s reply from %s within %.1fs", method, serial, timeout)
+            return None
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("%s to %s failed: %s", method, serial, err)
+            return None
+        finally:
+            waiters = self._waiters.get(key)
+            if waiters and future in waiters:
+                waiters.remove(future)
+                if not waiters:
+                    self._waiters.pop(key, None)
 
     def disconnect(self):
         """Disconnect and clean up."""
