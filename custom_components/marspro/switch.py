@@ -115,6 +115,9 @@ class MarsProMasterSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Réveille l'iHub (masterOn=1)."""
+        user_off = self._state.get("_master_off_by_user")
+        if user_off:
+            user_off.discard(self._serial)
         await async_set_config_field(
             self.hass, self._state, self._serial, self._model,
             ["outlet"],
@@ -123,6 +126,9 @@ class MarsProMasterSwitch(SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         """Coupe l'iHub globalement (masterOn=0)."""
+        # Remembered so that the automatic wake-up after a power outage does not
+        # override a deliberate shutdown made from Home Assistant (see wake.py).
+        self._state.setdefault("_master_off_by_user", set()).add(self._serial)
         await async_set_config_field(
             self.hass, self._state, self._serial, self._model,
             ["outlet"],

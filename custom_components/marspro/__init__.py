@@ -1,6 +1,7 @@
 """Mars Pro integration for Home Assistant."""
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import voluptuous as vol
@@ -29,6 +30,7 @@ from .const import (
 from .api import AuthError, MarsProAPI
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
+from .wake import WakeTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,6 +213,71 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Shared state between platforms
     state = {"devices": devices, "live_data": {}, "mqtt": None}
 
+    # --- Waking an iHub up after an outage ---------------------------------
+    # An iHub that reports masterOn=0 ignores every actuator command. The wake
+    # used to be attempted only when OUR MQTT client reconnected, but after a
+    # power outage we come back first: on 2026-10-10 Home Assistant logged in at
+    # 12:42:57 and the iHub only reappeared at 12:43:29, so the command was
+    # published into the void, never retried, and the cabinet stayed dark for
+    # two hours. The wake is now driven by what the DEVICE reports, and it is
+    # verified instead of fired blindly. Policy: wake.py (doubles-tested).
+    ihubs = {d["serial"]: d for d in devices if d["productType"] == DEVICE_IHUB10}
+    wake = WakeTracker()
+
+    def _master_on(serial: str) -> bool:
+        outlet = (state["live_data"].get(serial, {})
+                  .get("getDevSta", {}).get("data", {}).get("outlet", {}))
+        return bool(outlet.get("masterOn", 0))
+
+    def wake_ihub(dev: dict, attempt: int) -> None:
+        """Ask an iHub to wake up (masterOn=1) and check that it actually did.
+
+        The device applies a command with a delay of up to a minute, so an
+        immediate negative check does not mean the command was lost: the wake is
+        repeated a few times, spaced out, and given up cleanly (the vendor app
+        remains the last resort).
+        """
+        serial = dev["serial"]
+        if _master_on(serial):
+            _LOGGER.warning(
+                "Mars Pro: iHub %s is awake (masterOn=1) after %d wake attempt(s)",
+                serial, attempt,
+            )
+            wake.next_delay(serial, True)
+            return
+        _LOGGER.warning(
+            "Mars Pro: iHub %s reports masterOn=0 — waking it up (attempt %d); in "
+            "that state it ignores every actuator command.", serial, attempt,
+        )
+        mqtt.publish(serial, dev["model"], "setConfigField",
+                     {"pid": serial, "keyPath": ["outlet"],
+                      "outlet": {"masterOn": 1}})
+        mqtt.publish(serial, dev["model"], "getDevSta", {"pid": serial})
+        delay = wake.next_delay(serial, False)
+        if delay is None:
+            _LOGGER.warning(
+                "Mars Pro: iHub %s still reports masterOn=0 after %d attempt(s) — "
+                "giving up (the vendor app can still wake it).", serial, attempt,
+            )
+            return
+        if timer := state.get("_wake_timer"):
+            timer.cancel()
+        state["_wake_timer"] = hass.loop.call_later(
+            delay, lambda: wake_ihub(dev, attempt + 1)
+        )
+
+    def consider_wake(serial: str) -> None:
+        """Start a wake sequence if this iHub just came back and is asleep."""
+        dev = ihubs.get(serial)
+        if dev is None:
+            return  # never write to hardware we do not understand
+        if serial in state.get("_master_off_by_user", ()):
+            # The master was switched off on purpose from Home Assistant: that
+            # deliberate choice is not overridden.
+            return
+        if wake.observe(serial, time.monotonic(), _master_on(serial)):
+            wake_ihub(dev, 1)
+
     def on_mqtt_message(topic: str, data: dict):
         """Handle incoming MQTT messages."""
         method = data.get("method", "")
@@ -222,6 +289,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 dev_state = state["live_data"].get(serial, {})
                 dev_state[method] = data
                 state["live_data"][serial] = dev_state
+                if method == "getDevSta":
+                    consider_wake(serial)
 
     def on_mqtt_reconnect():
         """Called after successful MQTT reconnection — restore masterOn + poll."""
@@ -357,6 +426,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     state = hass.data[DOMAIN].pop(entry.entry_id, {})
     if timer := state.get("_poll_timer"):
+        timer.cancel()
+    if timer := state.get("_wake_timer"):
         timer.cancel()
     if mqtt := state.get("mqtt"):
         mqtt.disconnect()
