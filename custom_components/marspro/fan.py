@@ -32,7 +32,16 @@ async def async_setup_entry(
 class MarsProFan(FanEntity):
     """Fan (inline blower, oscillating)."""
 
-    _attr_supported_features = FanEntityFeature.SET_SPEED
+    # TURN_ON / TURN_OFF are advertised because the service calls are refused
+    # by Home Assistant otherwise, even though the methods below exist: a
+    # `fan.turn_on` on this entity used to raise "does not support action
+    # fan.turn_on" and aborted the calling automation mid-way (any post-outage
+    # resync sequence died there, leaving lights and blower unrestored).
+    _attr_supported_features = (
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.TURN_ON
+        | FanEntityFeature.TURN_OFF
+    )
 
     def __init__(self, state: dict, device_info: dict, actuator: str, label: str):
         self._state = state
