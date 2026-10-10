@@ -79,7 +79,17 @@ class MarsProFan(FanEntity):
     def available(self):
         return self._serial in self._state["live_data"]
 
-    async def async_turn_on(self, percentage=None, **kwargs):
+    async def async_turn_on(self, percentage=None, preset_mode=None, **kwargs):
+        """Allume l'actionneur et applique la vitesse.
+
+        ``preset_mode`` is accepted but ignored (no preset is advertised). The
+        signature MUST take ``(percentage, preset_mode)`` **positionally**: that
+        is how Home Assistant's ``fan.turn_on`` service calls the entity
+        (``components/fan/__init__.py``, ``async_handle_turn_on_service``:
+        ``await self.async_turn_on(percentage, preset_mode, **kwargs)``). With
+        only ``(percentage=None, **kwargs)`` the call raised a TypeError, i.e.
+        HTTP 500 — advertising the feature was not enough to make it usable.
+        """
         level = percentage if percentage is not None else 50
         await async_set_config_field(
             self.hass, self._state, self._serial, self._model,
