@@ -22,8 +22,6 @@ async def async_setup_entry(
         # Only controllers (iHub, CB43) have sensors. Lights have none.
         if ptype not in (DEVICE_IHUB10, DEVICE_CB43):
             continue
-        is_cb43 = ptype == DEVICE_CB43
-
         # Common sensors (sensor block)
         for field, (dev_class, unit, _) in SENSOR_FIELDS.get("sensor", {}).items():
             entities.append(MarsProSensor(state, serial, dev, "sensor", field, dev_class, unit))
@@ -32,10 +30,12 @@ async def async_setup_entry(
         for field, (dev_class, unit, _) in SENSOR_FIELDS.get("outlet", {}).items():
             entities.append(MarsProSensor(state, serial, dev, "outlet", field, dev_class, unit))
 
-        # CB43 extra sensors (soil, ppfd)
-        if is_cb43:
-            for field, (dev_class, unit, _) in SENSOR_CB43_EXTRA.items():
-                entities.append(MarsProSensor(state, serial, dev, "sensor", field, dev_class, unit))
+        # Extra sensors: PPFD and the soil probes. Both controllers report them,
+        # and only when the probes are actually wired — an iHub Pro exposing
+        # them used to get no entity at all. Without the probes the fields are
+        # simply absent and the entities stay unknown.
+        for field, (dev_class, unit, _) in SENSOR_CB43_EXTRA.items():
+            entities.append(MarsProSensor(state, serial, dev, "sensor", field, dev_class, unit))
 
     async_add_entities(entities)
 
