@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, ACTUATORS_IHUB10, ACTUATORS_CB43, DEVICE_IHUB10, DEVICE_CB43
+from .const import DOMAIN, ACTUATORS_IHUB10, ACTUATORS_CB43, DEVICE_IHUB10, DEVICE_CB43, PS4_OUTPUTS
 from .actuators import async_set_config_field
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +29,13 @@ async def async_setup_entry(
                 entities.append(MarsProSwitch(state, dev, act_name, label))
         # Switch général (outlet.masterOn) — « réveille » l'iHub après coupure
         entities.append(MarsProMasterSwitch(state, dev))
+
+        # The four switched outlets some CB43 units carry (device.ps4). Each
+        # channel is its own switch, written on its own keyPath — see the note
+        # on PS4_OUTPUTS in const.py.
+        if ptype == DEVICE_CB43:
+            for channel in PS4_OUTPUTS:
+                entities.append(MarsProPs4Switch(state, dev, channel))
 
     async_add_entities(entities)
 
@@ -133,4 +140,54 @@ class MarsProMasterSwitch(SwitchEntity):
             self.hass, self._state, self._serial, self._model,
             ["outlet"],
             {"masterOn": 0},
+        )
+
+
+class MarsProPs4Switch(SwitchEntity):
+    """One of the four switched outlets a CB43 may carry (`device.ps4`).
+
+    These channels are **not** siblings of the other actuators: each one is
+    written on its own keyPath (`["device", "ps4", "O1"]`). Writing the parent
+    (`["device", "ps4"]`) replaces the whole block and would wipe the settings
+    of the neighbouring channels, so the write always goes one level deeper.
+    """
+
+    def __init__(self, state: dict, device_info: dict, channel: str):
+        self._state = state
+        self._serial = device_info["serial"]
+        self._model = device_info["model"]
+        self._channel = channel
+        self._attr_unique_id = f"marspro_{self._serial}_ps4_{channel}_switch"
+        self._attr_name = f"{device_info['name']} Outlet {channel}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self._serial)},
+            name=device_info["name"],
+            model=device_info["productType"],
+            manufacturer="Mars Hydro",
+        )
+
+    @property
+    def is_on(self):
+        data = self._state["live_data"].get(self._serial, {})
+        devsta = data.get("getDevSta", {}).get("data", {})
+        return bool(devsta.get("ps4", {}).get(self._channel, {}).get("on", 0))
+
+    @property
+    def available(self):
+        return self._serial in self._state["live_data"]
+
+    async def async_turn_on(self, **kwargs):
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["device", "ps4", self._channel],
+            {"mOnOff": 1},
+        )
+
+    async def async_turn_off(self, **kwargs):
+        # Unlike the other actuators, switching one of these off is an explicit
+        # `mOnOff: 0` — not the absence of the key. Verified on real hardware.
+        await async_set_config_field(
+            self.hass, self._state, self._serial, self._model,
+            ["device", "ps4", self._channel],
+            {"mOnOff": 0},
         )

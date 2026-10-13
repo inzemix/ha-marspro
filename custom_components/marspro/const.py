@@ -67,6 +67,12 @@ ACTUATORS_CB43 = {
     "dehumidifier": ("switch", "Dehumidifier"),
 }
 
+# The four switched outlets some CB43 units carry (`device.ps4`). They are not
+# siblings of the other actuators: each channel is written on its own keyPath
+# (["device", "ps4", "O1"]), because writing the parent key replaces the whole
+# block and would wipe the neighbouring channels' settings.
+PS4_OUTPUTS = ("O1", "O2", "O3", "O4")
+
 SENSOR_NAMES = {
     "temp": "Temperature",
     "humi": "Humidity",
@@ -79,6 +85,7 @@ SENSOR_NAMES = {
     "tempSoil": "Soil Temperature",
     "humiSoil": "Soil Humidity",
     "ECSoil": "Soil EC",
+    "co2": "CO2",
 }
 
 # Sensors common to all devices
@@ -87,6 +94,7 @@ SENSOR_FIELDS = {
         "temp": ("temperature", "°C", "temperature"),
         "humi": ("humidity", "%", "humidity"),
         "vpd":  (None, "kPa", None),
+        "co2":  ("carbon_dioxide", "ppm", "carbon_dioxide"),
     },
     "outlet": {
         "vRms":   ("voltage", "V", "voltage"),

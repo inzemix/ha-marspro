@@ -46,6 +46,8 @@ ACTUATOR_HINTS = {
     "device1": "switch entity (generic outlet 1)",
     "device2": "switch entity (generic outlet 2)",
     "outlet": "power data + the global master switch (outlet.masterOn)",
+    "ps4": "four switched outlets (O1-O4), one switch entity each",
+    "ir": "infrared emitter (not exposed by the integration)",
 }
 
 # Example of a command, kept here so the report is self-contained: this is
