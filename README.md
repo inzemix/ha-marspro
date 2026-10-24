@@ -4,7 +4,7 @@
 
 # Mars Hydro — Home Assistant Integration
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=inzemix&repository=ha-marspro&category=integration)
 [![GitHub release](https://img.shields.io/github/v/release/inzemix/ha-marspro)](https://github.com/inzemix/ha-marspro/releases)
 [![License](https://img.shields.io/github/license/inzemix/ha-marspro)](LICENSE)
 
@@ -60,7 +60,19 @@ Paste its output in a new issue.
 
 ## Installation
 
-### Via HACS (recommended)
+### Via the Marketplace (Home Assistant 2026.11 and newer)
+
+Starting with Home Assistant 2026.11, HACS ships built in as the **Marketplace**.
+
+1. Go to **Settings** → **Marketplace**
+2. In the upper-right corner, select **Add from link**
+3. Enter `https://github.com/inzemix/ha-marspro` (or `inzemix/ha-marspro`)
+4. Select **Add**, open the repository, then **Install**
+5. Restart Home Assistant
+
+Adding a repository from a link requires a GitHub connection. Once connected, the Marketplace keeps it up to date; without one, a repository added from a link is not updated.
+
+### Via HACS (Home Assistant 2026.10 and older)
 
 1. Open HACS → Integrations → ⋮ → Custom repositories
 2. URL: `https://github.com/inzemix/ha-marspro`
@@ -87,6 +99,56 @@ Copy `custom_components/marspro/` to `<config>/custom_components/marspro/`
 - ⚠️ Low water / fault alarms
 - 🔄 Automatic reconnection with exponential backoff
 - 🩺 Automatic read-only diagnostic when an unsupported device is found, with a ready-to-send report
+- 📐 **Recipe included:** compute DLI (daily light integral) from the PPFD sensor — see [below](#dli--daily-light-integral-from-ppfd)
+
+## Recipes
+
+Things you can build on top of the entities, without touching any code.
+
+### DLI — daily light integral, from PPFD
+
+DLI (mol/m²/day) is the total light your plants actually receive over the lit period — the integral of PPFD over time. That is what drives growth; the instantaneous PPFD reading is only the ingredient.
+
+> **Requires a PPFD probe.** The `ppfd` entity only carries a value if your controller has the sensor fitted. If it stays `unknown`, this recipe produces nothing meaningful.
+
+Home Assistant computes it with three built-in helpers — no code, no custom component. Add this to `configuration.yaml`:
+
+```yaml
+sensor:
+  # 1 — accumulate the PPFD samples into a running total
+  - platform: integration
+    source: sensor.mh_ihub10_xxxxxxxxxxxx_ppfd    # replace with your own PPFD entity
+    name: "PPFD integral"
+    method: left
+    unit_time: h
+
+utility_meter:
+  # 2 — slice that running total into days
+  dli_daily:
+    source: sensor.ppfd_integral
+    cycle: daily
+
+template:
+  # 3 — scale to physical units
+  - sensor:
+      - name: "DLI"
+        unique_id: mars_pro_dli
+        unit_of_measurement: "mol/m²"
+        state: "{{ (states('sensor.dli_daily') | float(0) * 0.0036) | round(2) }}"
+        availability: "{{ states('sensor.dli_daily') not in ['unknown', 'unavailable'] }}"
+```
+
+**About `0.0036`** — it looks like a magic number, so here it is taken apart: it is `3600 × 1e-6`. Because step 1 runs with `unit_time: h`, its total is expressed in µmol × hours; multiplying by 3600 brings it back to seconds, and by 1e-6 it becomes moles instead of µmoles. Together: 0.0036.
+
+**Expected values.** 12 h of light at ~450 µmol/m²/s lands around 19–20 mol/m² for the day — a normal figure for a grow tent under LED.
+
+**Three things worth knowing:**
+
+- **It survives a Home Assistant restart.** The `integration` helper is a `RestoreEntity` — it restores its accumulated total, and the meter recomputes the day's delta from that monotonic source. No custom persistence is involved.
+- **It resets at local midnight** (`cycle: daily`). That is the correct boundary whenever the lit period does not cross midnight — a 08:00–20:00 schedule, for example. If your photoperiod *does* cross midnight, use the controller's own day/night window instead (`target.dayTime`, visible in the diagnostic report) so that a lit period is never split across two DLI days. Whichever you pick, document it.
+- **The result depends on how often PPFD is sampled.** `getDevSta` only carries the instantaneous PPFD — the controller keeps no daily accumulation of its own, so there is nothing better to read. A steady polling interval gives an accurate figure; a long integration outage will slightly under-count.
+
+> **Credit:** this recipe was contributed and verified on real hardware (iHub Pro + CB43) by [stefanr09](https://github.com/stefanr09) — see [issue #4](https://github.com/inzemix/ha-marspro/issues/4).
 
 ## Security
 

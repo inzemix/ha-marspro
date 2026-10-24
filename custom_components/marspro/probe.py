@@ -30,7 +30,7 @@ TOPIC_UP = "MHPRO/{model}/API/UP/{serial}"
 TOPIC_DOWN = "MHPRO/{model}/API/DOWN/{serial}"
 
 # Read-only requests, sent first and always. Keep this list short and harmless.
-READONLY_METHODS = ("getDevSta", "getSysSta", "getConfigFile")
+READONLY_METHODS = ("getDevSta", "getSysSta", "getConfigFile", "getDevOpLog")
 
 # Actuator blocks known to exist on this ecosystem. A device reports the subset
 # it has; each one becomes one Home Assistant entity.
@@ -335,6 +335,10 @@ def probe_device(host: str, user: str, password: str, device: dict[str, Any],
 def summarise_block(method: str, payload: dict[str, Any]) -> list[str]:
     """Human-readable one-liner(s) describing what a device replied."""
     data = payload.get("data")
+    if method == "getDevOpLog":
+        # Journal d'operations de l'appareil : on le montre brut, sa structure
+        # n'est pas documentee. C'est lui qui dira pourquoi le master a saute.
+        return [f"      raw: {json.dumps(payload)[:1500]}"]
     if not isinstance(data, dict):
         return ["      (no data block)"]
     lines = []

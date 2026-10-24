@@ -36,9 +36,13 @@ STARTUP_GRACE = 600.0
 # Delay before each further verification/attempt. The spacing matters: the iHub
 # applies a command with a delay of up to ~1 minute, so a first negative check
 # does NOT mean the command was lost — hence several spaced attempts rather than
-# one. 4 entries = 4 writes (t0, +20s, +65s, +155s), the last one being given a
-# full 90 s to land before we give up.
-RETRY_DELAYS = (20.0, 45.0, 90.0, 90.0)
+# one.
+#
+# 2026-10-24: the 5-write / 4-minute schedule gave up while the device was still
+# asleep (19:56→20:00), and the cabinet stayed dark until the user opened the
+# vendor app 4 minutes later. The schedule now spans ~28 minutes (9 writes) so a
+# slow or busy device is still retried long after the first failures.
+RETRY_DELAYS = (20.0, 45.0, 90.0, 120.0, 180.0, 300.0, 300.0, 300.0, 300.0)
 
 
 class WakeTracker:

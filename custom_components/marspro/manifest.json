@@ -5,12 +5,11 @@
     "@inzemix"
   ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/inzemix/ha-marspro",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/inzemix/ha-marspro/issues",
-  "requirements": [
-    "paho-mqtt>=2.0.0"
-  ],
-  "version": "1.0.41"
+  "version": "1.0.42"
 }

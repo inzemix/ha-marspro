@@ -1,0 +1,23 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Mars Pro",
+                "description": "Connectez votre compte Mars Pro pour découvrir vos appareils.",
+                "data": {
+                    "email": "E-mail",
+                    "password": "Mot de passe"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Impossible de joindre Mars Pro. Vérifiez votre connexion internet.",
+            "invalid_auth": "E-mail ou mot de passe invalide. Vérifiez vos identifiants.",
+            "no_devices": "Aucun appareil trouvé sur ce compte. Vérifiez que vos appareils sont connectés et visibles dans l'application Mars Pro.",
+            "unknown": "Une erreur inattendue est survenue."
+        },
+        "abort": {
+            "already_configured": "Ce compte est déjà configuré."
+        }
+    }
+}
