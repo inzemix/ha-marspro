@@ -22,6 +22,14 @@ _LOGGER = logging.getLogger(__name__)
 # How long to wait for the device's getConfigFile reply before writing anyway.
 CONFIG_READ_TIMEOUT = 3.0
 
+# The hub acknowledges a `setOutlet` in ~5 s (measured), and answers a
+# `getDevSta` just as fast. Both are slower than a config read.
+OUTLET_ACK_TIMEOUT = 10.0
+STATE_READ_TIMEOUT = 6.0
+
+# How long the relay takes to follow the command (327 W -> 0 W took ~10 s).
+RELAY_SETTLE_DELAY = 10.0
+
 
 def _config_root(reply: dict | None) -> dict:
     """Return the ``configFile`` mapping carried by a getConfigFile reply."""
@@ -101,4 +109,66 @@ async def async_set_config_field(hass, state: dict, serial: str, model: str,
     await hass.async_add_executor_job(
         mqtt.publish, serial, model, "setConfigField", command
     )
+    return True
+
+
+async def async_set_outlet(hass, state: dict, serial: str, model: str,
+                           on: bool, num: int = 0) -> bool:
+    """Switch one of the hub's outlets — index 0 being the global master.
+
+    The global master is **not** a configuration field. `outlet.masterOn` is
+    read-only in the vendor app: its deserialiser stores the value and nothing
+    ever writes it back, so a `setConfigField` on `["outlet"]` is accepted by
+    the broker and silently ignored by the device. That is why the master
+    switch never worked.
+
+    The verified command is `setOutlet`, carrying an outlet index and the
+    desired state. Measured on an iHub Pro (2026-10-26): the hub answers
+    `code: 200` within ~5 s, `masterOn` flips in the same reply, and the relay
+    itself follows ~5-10 s later (327 W → 0 W).
+
+    Returns True when the command was published, False when there is no
+    connection to publish on.
+    """
+    mqtt = state.get("mqtt")
+    if mqtt is None:
+        return False
+
+    desired = 1 if on else 0
+    reply = await mqtt.request(
+        serial, model, "setOutlet",
+        {"pid": serial, "num": num, "on": desired},
+        timeout=OUTLET_ACK_TIMEOUT,
+    )
+    if reply is None:
+        _LOGGER.warning(
+            "Mars Pro: no setOutlet acknowledgement from %s within %.0fs "
+            "(outlet %s -> %s) — the command may still have been applied.",
+            serial, OUTLET_ACK_TIMEOUT, num, desired,
+        )
+        return True
+
+    code = reply.get("code")
+    if code not in (200, "200"):
+        _LOGGER.warning("Mars Pro: %s refused setOutlet (outlet %s -> %s): code=%s msg=%s",
+                        serial, num, desired, code, reply.get("msg"))
+        return True
+
+    # The acknowledgement already carries the new `masterOn`, but the entity
+    # reads its state from the last getDevSta. Read it back so the switch does
+    # not stay stuck on its old position until the next poll.
+    await mqtt.request(serial, model, "getDevSta", {"pid": serial},
+                       timeout=STATE_READ_TIMEOUT)
+
+    # The relay itself closes a few seconds later, and the power sensor is only
+    # refreshed by the 60 s poll: read the state once more after the settle
+    # delay, so the consumption does not sit on its old value for a minute.
+    if hass is not None:
+        def _late_refresh() -> None:
+            hass.async_create_task(
+                mqtt.request(serial, model, "getDevSta", {"pid": serial},
+                             timeout=STATE_READ_TIMEOUT)
+            )
+
+        hass.loop.call_later(RELAY_SETTLE_DELAY, _late_refresh)
     return True

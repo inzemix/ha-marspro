@@ -25,6 +25,13 @@ OS_VERSION = "14"
 DEVICE_IHUB10 = "MH-IHUB10"
 DEVICE_CB43 = "MH-CB43"
 
+# The global master of an iHub Pro is outlet 0. It is switched with `setOutlet`
+# (num = outlet index, on = 0/1). `outlet.masterOn` is READ-ONLY on the device:
+# the vendor app's deserialiser stores it and nothing writes it, so a
+# `setConfigField` on ["outlet"] is acknowledged (`code: 200`) then ignored.
+# Verified on real hardware, 2026-10-26.
+MASTER_OUTLET = 0
+
 # Device types that are known to expose NO entities through this integration:
 # they never answer an MQTT request, so there is nothing to read and nothing to
 # write. These are reported discreetly at setup — they are expected, not errors.

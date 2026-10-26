@@ -1,9 +1,11 @@
 """When to wake an iHub Pro up after a power outage.
 
 An iHub Pro restarts with ``outlet.masterOn = 0`` and, in that state, ignores
-*every* actuator command — lights, blower, humidifier. Writing ``masterOn = 1``
-is what the vendor app does when the user touches a switch, and it brings the
-device back to life.
+*every* actuator command — lights, blower, humidifier. Switching outlet 0 back
+on (``setOutlet num=0 on=1``, the command the vendor app sends when the user
+touches a switch) brings the device back to life. Writing ``masterOn = 1``
+instead does **nothing**: ``masterOn`` is a read-only field, and the broker
+acknowledges the write before the device discards it.
 
 That wake used to be attempted only when **our own** MQTT client reconnected
 (``on_mqtt_reconnect`` in ``__init__.py``). After a power outage both sides

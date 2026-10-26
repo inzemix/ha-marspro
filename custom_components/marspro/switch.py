@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN, ACTUATORS_IHUB10, ACTUATORS_CB43, DEVICE_IHUB10, DEVICE_CB43, PS4_OUTPUTS
-from .actuators import async_set_config_field
+from .actuators import async_set_config_field, async_set_outlet
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,26 +121,26 @@ class MarsProMasterSwitch(SwitchEntity):
         return self._serial in self._state["live_data"]
 
     async def async_turn_on(self, **kwargs):
-        """Réveille l'iHub (masterOn=1)."""
+        """Réveille l'iHub (outlet 0 -> on)."""
         user_off = self._state.get("_master_off_by_user")
         if user_off:
             user_off.discard(self._serial)
-        await async_set_config_field(
-            self.hass, self._state, self._serial, self._model,
-            ["outlet"],
-            {"masterOn": 1},
-        )
+        await async_set_outlet(self.hass, self._state, self._serial, self._model, True)
 
     async def async_turn_off(self, **kwargs):
-        """Coupe l'iHub globalement (masterOn=0)."""
+        """Coupe l'iHub globalement (outlet 0 -> off)."""
         # Remembered so that the automatic wake-up after a power outage does not
-        # override a deliberate shutdown made from Home Assistant (see wake.py).
+        # override a deliberate shutdown made from Home Assistant (see wake.py),
+        # and exposed as an attribute so the `placard` package can tell a real
+        # outage from a shutdown the user asked for.
         self._state.setdefault("_master_off_by_user", set()).add(self._serial)
-        await async_set_config_field(
-            self.hass, self._state, self._serial, self._model,
-            ["outlet"],
-            {"masterOn": 0},
-        )
+        await async_set_outlet(self.hass, self._state, self._serial, self._model, False)
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "off_by_user": self._serial in self._state.get("_master_off_by_user", set()),
+        }
 
 
 class MarsProPs4Switch(SwitchEntity):

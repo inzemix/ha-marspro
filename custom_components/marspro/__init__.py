@@ -22,6 +22,7 @@ from .const import (
     DEVICE_IHUB10,
     DOMAIN,
     KNOWN_NO_ENTITY_TYPES,
+    MASTER_OUTLET,
     MQTT_HOST,
     REPORT_FILENAME,
     SERVICE_GENERATE_REPORT,
@@ -249,9 +250,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "Mars Pro: iHub %s reports masterOn=0 — waking it up (attempt %d); in "
             "that state it ignores every actuator command.", serial, attempt,
         )
-        mqtt.publish(serial, dev["model"], "setConfigField",
-                     {"pid": serial, "keyPath": ["outlet"],
-                      "outlet": {"masterOn": 1}})
+        mqtt.publish(serial, dev["model"], "setOutlet",
+                     {"pid": serial, "num": MASTER_OUTLET, "on": 1})
         mqtt.publish(serial, dev["model"], "getDevSta", {"pid": serial})
         delay = wake.next_delay(serial, False)
         if delay is None:
@@ -300,13 +300,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # there is no reason to push it a command whose effect we cannot
             # predict. Reading stays unconditional.
             if dev["productType"] == DEVICE_IHUB10:
+                if dev["serial"] in state.get("_master_off_by_user", ()):
+                    # Switched off on purpose from Home Assistant: a reconnect
+                    # must not undo that choice now that the command works.
+                    _LOGGER.debug("Mars Pro: %s switched off by the user — not restoring",
+                                  dev["serial"])
+                    mqtt.publish(dev["serial"], dev["model"], "getDevSta",
+                                 {"pid": dev["serial"]})
+                    continue
                 _LOGGER.info(
-                    "Mars Pro MQTT reconnected — restoring masterOn on %s (the only "
-                    "device that has that outlet)", dev["serial"]
+                    "Mars Pro MQTT reconnected — switching outlet 0 (master) on %s (the "
+                    "only device that has that outlet)", dev["serial"]
                 )
-                mqtt.publish(dev["serial"], dev["model"], "setConfigField",
-                             {"pid": dev["serial"], "keyPath": ["outlet"],
-                              "outlet": {"masterOn": 1}})
+                mqtt.publish(dev["serial"], dev["model"], "setOutlet",
+                             {"pid": dev["serial"], "num": MASTER_OUTLET, "on": 1})
             mqtt.publish(dev["serial"], dev["model"], "getDevSta",
                          {"pid": dev["serial"]})
         # Log per device, never a blanket message: an unconditional
