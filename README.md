@@ -96,10 +96,29 @@ Copy `custom_components/marspro/` to `<config>/custom_components/marspro/`
 - 🔌 Individual outlet switching (replaces Zigbee plugs!)
 - 🌀 Fan speed control (inline blower, oscillating)
 - 📊 Per-device configuration via `setConfigField`
-- ⚠️ Low water / fault alarms
+- ⚠️ Device fault alarms (dehumidifier bucket full, humidifier tank empty) as a `problem` binary sensor
 - 🔄 Automatic reconnection with exponential backoff
 - 🩺 Automatic read-only diagnostic when an unsupported device is found, with a ready-to-send report
 - 📐 **Recipe included:** compute DLI (daily light integral) from the PPFD sensor — see [below](#dli--daily-light-integral-from-ppfd)
+
+## Fault alarms
+
+The device reports hardware faults itself, in the `alarm` field of the actuator block concerned.
+They are exposed as **one `problem` binary sensor per controller**, named `<device> Alarm`:
+
+| Block | `alarm` | Meaning |
+|---|---|---|
+| `dehumidifier` | `5` | Water bucket full |
+| `humidifier` | `4` | Tank empty / needs refill |
+
+The field is carried by every `getDevSta` frame (polled every 60 s) for as long as the fault is
+active, so the sensor goes back to `off` by itself once the bucket is emptied or the tank refilled
+— no "alarm cleared" message is involved. Attributes: `alarms` (raw snapshot, a reported `0` is
+kept), `active` (decoded code + meaning), and `alarm_last` (the frame's `alarmLast` marker
+`{id, epoch, devType}` — sticky, and it carries no alarm type, so it cannot tell a full bucket from
+any other event).
+
+For a phone notification, trigger on `binary_sensor.<device>_alarm` turning `on`.
 
 ## Recipes
 

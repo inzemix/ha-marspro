@@ -19,6 +19,8 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.loader import async_get_integration
 
 from .const import (
+    CAPTURE_FILENAME,
+    CAPTURE_MAX_BYTES,
     DEVICE_IHUB10,
     DOMAIN,
     KNOWN_NO_ENTITY_TYPES,
@@ -29,6 +31,7 @@ from .const import (
     SUPPORTED_TYPES,
 )
 from .api import AuthError, MarsProAPI
+from .capture import MessageCapture, alarm_snapshot, append_line
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
 from .wake import WakeTracker
@@ -212,7 +215,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
     # Shared state between platforms
-    state = {"devices": devices, "live_data": {}, "mqtt": None}
+    state = {"devices": devices, "live_data": {}, "mqtt": None, "alarms": {}}
+
+    # Diagnostic capture for the 1.0.46 beta (issue #5): the fault snapshot of
+    # every device, and any MQTT method we do not understand. Bounded inside
+    # MessageCapture, appended off the event loop, never able to break setup.
+    capture = MessageCapture()
+    capture_path = hass.config.path(CAPTURE_FILENAME)
+
+    def _capture_line(line: str | None) -> None:
+        if not line:
+            return
+        hass.async_create_task(
+            hass.async_add_executor_job(
+                append_line, capture_path, line, CAPTURE_MAX_BYTES
+            )
+        )
 
     # --- Waking an iHub up after an outage ---------------------------------
     # An iHub that reports masterOn=0 ignores every actuator command. The wake
@@ -280,17 +298,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def on_mqtt_message(topic: str, data: dict):
         """Handle incoming MQTT messages."""
+        if not isinstance(data, dict):
+            return
         method = data.get("method", "")
-        if method in ("getDevSta", "getConfigFile", "getSysSta"):
-            # Extract serial from topic: MHPRO/{model}/API/UP/{serial}
-            parts = topic.split("/")
-            if len(parts) >= 5:
-                serial = parts[4]
-                dev_state = state["live_data"].get(serial, {})
-                dev_state[method] = data
-                state["live_data"][serial] = dev_state
-                if method == "getDevSta":
-                    consider_wake(serial)
+        if method not in ("getDevSta", "getConfigFile", "getSysSta"):
+            # Not something we understand. Record it once (beta capture): if the
+            # hub ever pushes an alarm, this is where its shape becomes visible.
+            _capture_line(capture.note_message(topic, data))
+            return
+        # Extract serial from topic: MHPRO/{model}/API/UP/{serial}
+        parts = topic.split("/")
+        if len(parts) >= 5:
+            serial = parts[4]
+            dev_state = state["live_data"].get(serial, {})
+            dev_state[method] = data
+            state["live_data"][serial] = dev_state
+            if method == "getDevSta":
+                snapshot = alarm_snapshot((data.get("data") or {}))
+                state["alarms"][serial] = snapshot
+                _capture_line(capture.note_alarms(serial, snapshot))
+                consider_wake(serial)
 
     def on_mqtt_reconnect():
         """Called after successful MQTT reconnection — restore masterOn + poll."""

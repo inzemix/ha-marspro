@@ -51,6 +51,12 @@ SERVICE_GENERATE_REPORT = "generate_device_report"
 REPORT_FILENAME = "marspro_device_report.txt"
 SUPPORTED_TYPES = (DEVICE_IHUB10, DEVICE_CB43)
 
+# Diagnostic capture (beta 1.0.46): fault snapshots and any MQTT method the
+# integration does not understand, appended to a small file the user can send.
+# Bounded so a misbehaving device can never fill the config partition.
+CAPTURE_FILENAME = "marspro_alarm_capture.log"
+CAPTURE_MAX_BYTES = 256 * 1024
+
 # Known actuator mapping per device class
 ACTUATORS_IHUB10 = {
     "light":        ("light", "Light 1"),
