@@ -183,3 +183,26 @@ def append_line(path: str, line: str | None, max_bytes: int) -> bool:
     except OSError as err:  # pragma: no cover - depends on the filesystem
         _LOGGER.debug("Mars Pro: could not write the capture file: %s", err)
         return False
+
+
+async def _append_in_executor(hass, path: str, line: str, max_bytes: int) -> None:
+    await hass.async_add_executor_job(append_line, path, line, max_bytes)
+
+
+def schedule_append(hass, path: str, line: str | None, max_bytes: int) -> bool:
+    """Schedule one capture line from a synchronous callback.
+
+    `hass.async_create_task()` only accepts a **coroutine**
+    (`target: Coroutine[Any, Any, _R]` in `homeassistant/core.py`), while
+    `hass.async_add_executor_job()` returns a **Future**. Handing the Future to
+    async_create_task raises `TypeError: a coroutine was expected, got <Future>`
+    *inside the MQTT callback* — which in 1.0.46b1 broke `on_mqtt_message` for
+    every incoming message and left all entities unavailable. The executor job
+    is therefore awaited inside a coroutine, and that coroutine is scheduled.
+
+    Returns False when there is nothing to write.
+    """
+    if not line:
+        return False
+    hass.async_create_task(_append_in_executor(hass, path, line, max_bytes))
+    return True

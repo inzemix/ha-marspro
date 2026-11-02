@@ -31,7 +31,7 @@ from .const import (
     SUPPORTED_TYPES,
 )
 from .api import AuthError, MarsProAPI
-from .capture import MessageCapture, alarm_snapshot, append_line
+from .capture import MessageCapture, alarm_snapshot, schedule_append
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
 from .wake import WakeTracker
@@ -226,11 +226,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     def _capture_line(line: str | None) -> None:
         if not line:
             return
-        hass.async_create_task(
-            hass.async_add_executor_job(
-                append_line, capture_path, line, CAPTURE_MAX_BYTES
-            )
-        )
+        try:
+            schedule_append(hass, capture_path, line, CAPTURE_MAX_BYTES)
+        except Exception:  # noqa: BLE001 — a diagnostic must never break the pipeline
+            _LOGGER.debug("Mars Pro: capture scheduling failed", exc_info=True)
 
     # --- Waking an iHub up after an outage ---------------------------------
     # An iHub that reports masterOn=0 ignores every actuator command. The wake
