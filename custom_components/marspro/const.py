@@ -57,6 +57,11 @@ SUPPORTED_TYPES = (DEVICE_IHUB10, DEVICE_CB43)
 CAPTURE_FILENAME = "marspro_alarm_capture.log"
 CAPTURE_MAX_BYTES = 256 * 1024
 
+# Home Assistant event fired once per new device alarm (issue #5). An iHub Pro
+# reports no alarm state inside its actuator blocks, only the sticky `alarmLast`
+# marker, so an event — not a binary sensor — is the honest primitive there.
+EVENT_ALARM = f"{DOMAIN}_alarm"
+
 # Known actuator mapping per device class
 ACTUATORS_IHUB10 = {
     "light":        ("light", "Light 1"),

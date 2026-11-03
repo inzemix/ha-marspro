@@ -84,6 +84,59 @@ def active_alarms(snapshot: dict) -> dict:
     return {block: code for block, code in snapshot.items() if code}
 
 
+# Device types seen in an alarm record. `26` is the dehumidifier: observed on an
+# iHub-10 Pro at the exact minute the vendor app pushed "tank full" (issue #5,
+# 2026-11-03 16:54:57Z) and seen again with two earlier alarms of the same
+# device; the protocol notes also recorded `devType 26` next to `alarmType 5`
+# (water bucket full) on a CB43. `19` = inline fan, per the same notes.
+#
+# ⚠️ This says WHICH device, never WHY: an iHub's `alarmLast` carries no
+# `alarmType` at all, so a full bucket and a defrost cycle are indistinguishable
+# there. Never map this to "water full" without a cause field.
+DEVICE_TYPE_HINTS: dict[int, str] = {19: "inline fan", 26: "dehumidifier"}
+
+
+class AlarmTracker:
+    """Turn the sticky `alarmLast` marker into exactly one event per new alarm.
+
+    `alarmLast` persists in every frame and is only replaced by a newer alarm,
+    so its mere presence means nothing. Only a change of its `id` is news.
+    The first frame of a device sets the baseline: an alarm raised while Home
+    Assistant was down (or weeks ago) must not fire a notification at startup —
+    it stays visible in the binary sensor's `alarm_last` attribute instead.
+    """
+
+    def __init__(self):
+        self._last: dict[str, object] = {}
+
+    def observe(self, serial: str, devsta_data) -> dict | None:
+        """Return an event payload when `alarmLast.id` changes, else None."""
+        if not isinstance(devsta_data, dict):
+            return None
+        last = devsta_data.get("alarmLast")
+        if not isinstance(last, dict):
+            return None
+        ident = last.get("id")
+        if ident is None:
+            return None
+        if self._last.get(serial) == ident:
+            return None
+        baseline = serial not in self._last
+        self._last[serial] = ident
+        if baseline:
+            return None
+        dev_type = last.get("devType")
+        hint = DEVICE_TYPE_HINTS.get(dev_type) if isinstance(dev_type, int) else None
+        return {
+            "serial": serial,
+            "alarm_id": ident,
+            "epoch": last.get("epoch"),
+            "dev_type": dev_type,
+            "alarm_type": last.get("alarmType"),
+            "device": hint or "unknown",
+        }
+
+
 def alarm_text(block: str, code) -> str:
     """Human meaning of one fault code, or an honest fallback."""
     known = ALARM_MEANINGS.get(block, {})

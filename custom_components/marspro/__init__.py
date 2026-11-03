@@ -23,6 +23,7 @@ from .const import (
     CAPTURE_MAX_BYTES,
     DEVICE_IHUB10,
     DOMAIN,
+    EVENT_ALARM,
     KNOWN_NO_ENTITY_TYPES,
     MASTER_OUTLET,
     MQTT_HOST,
@@ -31,7 +32,7 @@ from .const import (
     SUPPORTED_TYPES,
 )
 from .api import AuthError, MarsProAPI
-from .capture import MessageCapture, alarm_snapshot, schedule_append
+from .capture import AlarmTracker, MessageCapture, alarm_snapshot, schedule_append
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
 from .wake import WakeTracker
@@ -83,7 +84,9 @@ MESSAGES = {
         ),
         "nothing_to_report": (
             "Every device on this Mars Pro account is already supported — there is "
-            "nothing to report."
+            "nothing to report.\n\n"
+            "To get a report anyway (for example to attach it to an issue), run "
+            "`marspro.generate_device_report` again with **include_supported: true**."
         ),
         "manual_ready": (
             "Report generated for **{names}**:\n"
@@ -115,7 +118,10 @@ MESSAGES = {
         ),
         "nothing_to_report": (
             "Tous les appareils de ce compte Mars Pro sont déjà pris en charge — il n'y "
-            "a rien à signaler."
+            "a rien à signaler.\n\n"
+            "Pour obtenir quand même un rapport (par exemple pour le joindre à une "
+            "issue), relancez `marspro.generate_device_report` avec "
+            "**include_supported: true**."
         ),
         "manual_ready": (
             "Rapport généré pour **{names}** :\n"
@@ -215,7 +221,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
     # Shared state between platforms
-    state = {"devices": devices, "live_data": {}, "mqtt": None, "alarms": {}}
+    state = {
+        "devices": devices,
+        "live_data": {},
+        "mqtt": None,
+        "alarms": {},
+        "alarm_field_seen": {},
+    }
+
+    # Device alarms (issue #5). `alarmLast` is sticky, so only a change of its id
+    # is news: AlarmTracker turns that into one event per alarm, and the first
+    # frame of each device only sets the baseline.
+    alarm_events = AlarmTracker()
+    device_names = {d["serial"]: d["name"] for d in devices}
+
+    def _fire_alarm(payload: dict) -> None:
+        try:
+            data_out = dict(payload)
+            data_out["name"] = device_names.get(payload.get("serial"), payload.get("serial"))
+            hass.bus.async_fire(EVENT_ALARM, data_out)
+        except Exception:  # noqa: BLE001 — never break the message pipeline
+            _LOGGER.debug("Mars Pro: could not fire %s", EVENT_ALARM, exc_info=True)
+
 
     # Diagnostic capture for the 1.0.46 beta (issue #5): the fault snapshot of
     # every device, and any MQTT method we do not understand. Bounded inside
@@ -313,9 +340,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             dev_state[method] = data
             state["live_data"][serial] = dev_state
             if method == "getDevSta":
-                snapshot = alarm_snapshot((data.get("data") or {}))
+                dev_data = data.get("data") or {}
+                snapshot = alarm_snapshot(dev_data)
                 state["alarms"][serial] = snapshot
+                if snapshot:
+                    # This device really does report per-actuator faults, so the
+                    # binary sensor's "off" means "no fault" and not "blind spot".
+                    state["alarm_field_seen"][serial] = True
                 _capture_line(capture.note_alarms(serial, snapshot))
+                if alarm_payload := alarm_events.observe(serial, dev_data):
+                    _fire_alarm(alarm_payload)
                 consider_wake(serial)
 
     def on_mqtt_reconnect():

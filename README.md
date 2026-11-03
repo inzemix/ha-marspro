@@ -103,22 +103,56 @@ Copy `custom_components/marspro/` to `<config>/custom_components/marspro/`
 
 ## Fault alarms
 
-The device reports hardware faults itself, in the `alarm` field of the actuator block concerned.
-They are exposed as **one `problem` binary sensor per controller**, named `<device> Alarm`:
+Devices report faults in two different ways. The integration exposes both, but they are **not**
+equivalent — this section says exactly what each one gives you.
+
+### 1. Per-actuator `alarm` field — `<device> Alarm` binary sensor
+
+Some devices put the fault in the actuator block concerned, as an `alarm` code:
 
 | Block | `alarm` | Meaning |
 |---|---|---|
 | `dehumidifier` | `5` | Water bucket full |
 | `humidifier` | `4` | Tank empty / needs refill |
 
-The field is carried by every `getDevSta` frame (polled every 60 s) for as long as the fault is
-active, so the sensor goes back to `off` by itself once the bucket is emptied or the tank refilled
-— no "alarm cleared" message is involved. Attributes: `alarms` (raw snapshot, a reported `0` is
-kept), `active` (decoded code + meaning), and `alarm_last` (the frame's `alarmLast` marker
-`{id, epoch, devType}` — sticky, and it carries no alarm type, so it cannot tell a full bucket from
-any other event).
+Those are exposed as one `problem` binary sensor per controller, `<device> Alarm`. The field is
+carried by every `getDevSta` frame (polled every 60 s) while the fault is active, so the sensor
+returns to `off` by itself once the bucket is emptied. Attributes: `alarms` (raw snapshot, a
+reported `0` is kept), `active` (decoded code + meaning), `alarm_last`, and
+**`reports_alarm_field`** — which says whether this device actually reports the field at all.
 
-For a phone notification, trigger on `binary_sensor.<device>_alarm` turning `on`.
+⚠️ **An iHub Pro does not.** Verified on real hardware: its `getDevSta` carries no `alarm` key in
+any actuator block, so `reports_alarm_field` stays `false` and an `off` sensor there is a blind
+spot, not an "all good". Use the event below instead.
+
+### 2. `alarmLast` marker — `marspro_alarm` event
+
+Every device carries a sticky `alarmLast` marker (`{id, epoch, devType}`) pointing at its most
+recent alarm. The integration fires a **`marspro_alarm` event** once per new alarm — i.e. when the
+marker's `id` changes. The first frame after startup only sets the baseline, so an alarm raised
+while Home Assistant was down never triggers a notification storm.
+
+Event data: `serial`, `name`, `alarm_id`, `epoch`, `dev_type`, `alarm_type` (absent on an iHub),
+and `device` — a hint of *which* device alarmed (e.g. `dehumidifier`, `inline fan`).
+
+⚠️ **On an iHub the marker carries no cause.** `devType 26` identifies the dehumidifier, but a full
+water bucket and a defrost cycle produce the same record. Automate *"the dehumidifier raised an
+alarm"*, not *"the water bucket is full"* — the hub does not tell us which.
+
+```yaml
+automation:
+  - alias: Dehumidifier alarm
+    triggers:
+      - trigger: event
+        event_type: marspro_alarm
+        event_data:
+          device: dehumidifier
+    actions:
+      - action: notify.mobile_app_your_phone
+        data:
+          title: Mars Pro
+          message: "{{ trigger.event.data.name }} — alarm #{{ trigger.event.data.alarm_id }}"
+```
 
 ## Recipes
 
