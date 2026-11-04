@@ -7,8 +7,13 @@ fetch_alarm_feed:
 
     It exists because a device frame tells us *that* an alarm happened, never
     *why* - on an iHub the alarm record carries no cause. The cloud feed does
-    carry the alarm type. The result is returned directly in Developer tools ->
+    carry an alarm type. The result is returned directly in Developer tools ->
     Actions, so it can be copied and shared.
+
+    Warning: an empty reply is a real possible answer. On the iHub account it
+    was tested against, the feed returned no record at all, even right after a
+    confirmed alarm - so `ok: true, count: 0` means the endpoint answered and
+    simply has nothing to give. It is not proof that anything is broken.
   fields:
     page:
       name: Page

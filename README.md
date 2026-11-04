@@ -157,7 +157,9 @@ alarm"*, not *"the water bucket is full"* — the hub does not tell us which.
 
 If you need the cause, the **`marspro.fetch_alarm_feed`** action reads the account's server-side
 alarm log (read-only, nothing is written and no command is sent) and returns it directly in
-*Developer tools → Actions*. That feed carries an `alarmType` the device frame does not.
+*Developer tools → Actions*. That feed carries an `alarmType` the device frame does not — **when it
+has records at all**: on the iHub account it was tested against it returned an empty list even right
+after a confirmed alarm, so `count: 0` is a possible answer, not a malfunction.
 
 ```yaml
 automation:
