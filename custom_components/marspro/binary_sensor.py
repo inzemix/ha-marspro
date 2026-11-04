@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .capture import active_alarms, alarm_text
+from .alarms import active_alarms, alarm_text
 from .const import DOMAIN, DEVICE_IHUB10, DEVICE_CB43
 
 _LOGGER = logging.getLogger(__name__)

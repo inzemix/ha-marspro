@@ -52,12 +52,6 @@ SERVICE_FETCH_ALARM_FEED = "fetch_alarm_feed"
 REPORT_FILENAME = "marspro_device_report.txt"
 SUPPORTED_TYPES = (DEVICE_IHUB10, DEVICE_CB43)
 
-# Diagnostic capture (beta 1.0.46): fault snapshots and any MQTT method the
-# integration does not understand, appended to a small file the user can send.
-# Bounded so a misbehaving device can never fill the config partition.
-CAPTURE_FILENAME = "marspro_alarm_capture.log"
-CAPTURE_MAX_BYTES = 256 * 1024
-
 # Home Assistant event fired once per new device alarm (issue #5). An iHub Pro
 # reports no alarm state inside its actuator blocks, only the sticky `alarmLast`
 # marker, so an event — not a binary sensor — is the honest primitive there.

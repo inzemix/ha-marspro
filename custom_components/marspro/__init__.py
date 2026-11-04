@@ -20,8 +20,6 @@ from homeassistant.loader import async_get_integration
 
 from .const import (
     ALARM_FEED_PATH,
-    CAPTURE_FILENAME,
-    CAPTURE_MAX_BYTES,
     DEVICE_IHUB10,
     DOMAIN,
     EVENT_ALARM,
@@ -34,7 +32,7 @@ from .const import (
     SUPPORTED_TYPES,
 )
 from .api import AuthError, MarsProAPI, parse_alarm_feed
-from .capture import AlarmTracker, MessageCapture, alarm_snapshot, schedule_append
+from .alarms import AlarmTracker, alarm_snapshot
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
 from .wake import WakeTracker
@@ -254,21 +252,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001 — never break the message pipeline
             _LOGGER.debug("Mars Pro: could not fire %s", EVENT_ALARM, exc_info=True)
 
-
-    # Diagnostic capture for the 1.0.46 beta (issue #5): the fault snapshot of
-    # every device, and any MQTT method we do not understand. Bounded inside
-    # MessageCapture, appended off the event loop, never able to break setup.
-    capture = MessageCapture()
-    capture_path = hass.config.path(CAPTURE_FILENAME)
-
-    def _capture_line(line: str | None) -> None:
-        if not line:
-            return
-        try:
-            schedule_append(hass, capture_path, line, CAPTURE_MAX_BYTES)
-        except Exception:  # noqa: BLE001 — a diagnostic must never break the pipeline
-            _LOGGER.debug("Mars Pro: capture scheduling failed", exc_info=True)
-
     # --- Waking an iHub up after an outage ---------------------------------
     # An iHub that reports masterOn=0 ignores every actuator command. The wake
     # used to be attempted only when OUR MQTT client reconnected, but after a
@@ -339,9 +322,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
         method = data.get("method", "")
         if method not in ("getDevSta", "getConfigFile", "getSysSta"):
-            # Not something we understand. Record it once (beta capture): if the
-            # hub ever pushes an alarm, this is where its shape becomes visible.
-            _capture_line(capture.note_message(topic, data))
+            # Not something we understand — a push we never asked for, maybe. A
+            # beta once wrote these to a file to learn their shape; the question
+            # is answered, so a stable release only leaves a DEBUG trace (INFO
+            # from a custom integration is invisible in HA anyway).
+            _LOGGER.debug("Mars Pro: unhandled MQTT method %r on %s", method, topic)
             return
         # Extract serial from topic: MHPRO/{model}/API/UP/{serial}
         parts = topic.split("/")
@@ -358,7 +343,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # This device really does report per-actuator faults, so the
                     # binary sensor's "off" means "no fault" and not "blind spot".
                     state["alarm_field_seen"][serial] = True
-                _capture_line(capture.note_alarms(serial, snapshot))
                 if alarm_payload := alarm_events.observe(serial, dev_data):
                     _fire_alarm(alarm_payload)
                 consider_wake(serial)
