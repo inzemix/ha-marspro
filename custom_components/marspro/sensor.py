@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, SENSOR_FIELDS, SENSOR_CB43_EXTRA, SENSOR_NAMES, DEVICE_IHUB10, DEVICE_CB43
+from .const import DOMAIN, MAX_PLAUSIBLE_A_RAW, SENSOR_FIELDS, SENSOR_CB43_EXTRA, SENSOR_NAMES, DEVICE_IHUB10, DEVICE_CB43
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +72,14 @@ class MarsProSensor(SensorEntity):
         val = block_data.get(self._field)
         if val is not None and self._field == "energy":
             return round(val / 1000.0, 3)  # Wh → kWh
+        if val is not None and self._field == "aRms":
+            # Reported in centiamps, not amps: 105 means 1.05 A. Taking it as
+            # amps gives an impossible reading (105 A × 236 V = 24 kW on a
+            # socket). See MAX_PLAUSIBLE_A_RAW in const.py for the derivation
+            # and for why an implausible frame is dropped rather than shown.
+            if val > MAX_PLAUSIBLE_A_RAW:
+                return None
+            return round(val / 100.0, 2)
         return val
 
     @property

@@ -70,6 +70,18 @@ EVENT_ALARM = f"{DOMAIN}_alarm"
 # and DEVICE_LIST_PATH.
 ALARM_FEED_PATH = "/api/android/notice_msg/queryMessageList/v1"
 
+# `outlet.aRms` is reported in centiamps (0.01 A), while `vRms` is in volts and
+# `wattP` in watts. No document states it; the factor is derived from the
+# physics and holds on two installations:
+#   105 raw / 236 V / 159 W  -> 1.05 A gives PF 0.64 (plausible); raw would be 24 kW
+#   525 raw / 235 V / 1198 W -> 5.25 A gives PF 0.97 (plausible); raw would be 123 kW
+#   3   raw / 232 V / 3 W    -> 0.03 A gives PF 0.43 (plausible); raw would be PF 0.004
+# A garbage frame must not enter long-term statistics, so anything above this
+# bound (100 A after scaling) is reported as unknown instead of as a value.
+# It is a plausibility guard, NOT a specification: no controller socket of this
+# class carries 100 A.
+MAX_PLAUSIBLE_A_RAW = 10000
+
 # Known actuator mapping per device class
 ACTUATORS_IHUB10 = {
     "light":        ("light", "Light 1"),
