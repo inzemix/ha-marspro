@@ -11,7 +11,7 @@ from homeassistant.components import persistent_notification
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.http.auth import async_sign_path
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.const import Platform, __version__ as HA_VERSION
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
@@ -19,6 +19,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 from homeassistant.loader import async_get_integration
 
 from .const import (
+    ALARM_FEED_PATH,
     CAPTURE_FILENAME,
     CAPTURE_MAX_BYTES,
     DEVICE_IHUB10,
@@ -28,10 +29,11 @@ from .const import (
     MASTER_OUTLET,
     MQTT_HOST,
     REPORT_FILENAME,
+    SERVICE_FETCH_ALARM_FEED,
     SERVICE_GENERATE_REPORT,
     SUPPORTED_TYPES,
 )
-from .api import AuthError, MarsProAPI
+from .api import AuthError, MarsProAPI, parse_alarm_feed
 from .capture import AlarmTracker, MessageCapture, alarm_snapshot, schedule_append
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
@@ -57,6 +59,15 @@ SERVICE_GENERATE_REPORT_SCHEMA = vol.Schema(
         vol.Optional("test_writes", default=False): cv.boolean,
         vol.Optional("wait_seconds", default=12): vol.All(
             vol.Coerce(int), vol.Range(min=3, max=60)
+        ),
+    }
+)
+
+# Read-only diagnostic: the cloud's server-side alarm log. One page by default.
+SERVICE_FETCH_ALARM_FEED_SCHEMA = vol.Schema(
+    {
+        vol.Optional("page", default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=20)
         ),
     }
 )
@@ -457,6 +468,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         await _async_notify(hass, "manual_ready", names=_device_names(targets),
                             link=_report_link(hass), issues=ISSUES_URL)
+
+    async def async_fetch_alarm_feed(call: ServiceCall):
+        """Return the cloud's server-side alarm log (read-only diagnostic).
+
+        Answers the one question a device frame cannot: the *cause* of an alarm.
+        Nothing is written, and no command is sent to any device — it only reads
+        the account's own notification feed. Credentials come from the config
+        entry, so a fresh login is made and discarded.
+        """
+        page = call.data["page"]
+        api = MarsProAPI(entry.data["email"], entry.data["password"])
+        try:
+            await hass.async_add_executor_job(api.login)
+            response = await hass.async_add_executor_job(api.fetch_alarm_feed, page)
+        except Exception as err:  # noqa: BLE001 — the reply carries the failure
+            _LOGGER.warning(
+                "Mars Pro: alarm feed request failed (%s: %s)",
+                type(err).__name__, err,
+            )
+            return {
+                "ok": False,
+                "error": f"{type(err).__name__}: {err}",
+                "endpoint": ALARM_FEED_PATH,
+                "page": page,
+                "records": [],
+            }
+        result = parse_alarm_feed(response)
+        result["endpoint"] = ALARM_FEED_PATH
+        result["page"] = page
+        # A read-only diagnostic is invisible at INFO level in a custom
+        # integration, so the outcome is logged where it can actually be seen.
+        _LOGGER.warning(
+            "Mars Pro: alarm feed page %s — code=%s, %s record(s)",
+            page, result.get("code"), result.get("count"),
+        )
+        return result
+
+    if not hass.services.has_service(DOMAIN, SERVICE_FETCH_ALARM_FEED):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FETCH_ALARM_FEED,
+            async_fetch_alarm_feed,
+            schema=SERVICE_FETCH_ALARM_FEED_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
 
     if not hass.services.has_service(DOMAIN, SERVICE_GENERATE_REPORT):
         hass.services.async_register(

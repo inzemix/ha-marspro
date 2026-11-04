@@ -139,6 +139,10 @@ and `device` — a hint of *which* device alarmed (e.g. `dehumidifier`, `inline 
 water bucket and a defrost cycle produce the same record. Automate *"the dehumidifier raised an
 alarm"*, not *"the water bucket is full"* — the hub does not tell us which.
 
+If you need the cause, the **`marspro.fetch_alarm_feed`** action reads the account's server-side
+alarm log (read-only, nothing is written and no command is sent) and returns it directly in
+*Developer tools → Actions*. That feed carries an `alarmType` the device frame does not.
+
 ```yaml
 automation:
   - alias: Dehumidifier alarm

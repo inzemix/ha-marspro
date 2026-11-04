@@ -2,7 +2,15 @@
 import json
 import time
 import urllib.request
-from .const import REST_API_URL, LOGIN_PATH, DEVICE_LIST_PATH, APP_VERSION, OS_TYPE, OS_VERSION
+from .const import (
+    ALARM_FEED_PATH,
+    REST_API_URL,
+    LOGIN_PATH,
+    DEVICE_LIST_PATH,
+    APP_VERSION,
+    OS_TYPE,
+    OS_VERSION,
+)
 
 class MarsProAPI:
     """Handles REST calls to Mars Pro cloud."""
@@ -109,6 +117,43 @@ class MarsProAPI:
                 })
         self._devices = devices
         return devices
+
+    def fetch_alarm_feed(self, page: int = 1) -> dict:
+        """Read the account's server-side notification/alarm feed (read-only).
+
+        Diagnostic only: it tells us whether the cloud records the alarm *cause*
+        (`alarmType`), which a device frame does not carry. Nothing is written.
+        """
+        return self._post(ALARM_FEED_PATH, {"currentPage": page})
+
+
+def parse_alarm_feed(response) -> dict:
+    """Shape a `queryMessageList` response for the service reply.
+
+    Pure (no Home Assistant import) so it can be exercised by doubles. The
+    records are returned verbatim: we do not interpret `alarmType` here, the
+    whole point is to see what the server actually sends.
+    """
+    if not isinstance(response, dict):
+        return {"ok": False, "error": "response is not a JSON object", "records": []}
+    code = response.get("code")
+    message = response.get("msg")
+    data = response.get("data")
+    if isinstance(data, dict):
+        records = data.get("list") or []
+    elif isinstance(data, list):
+        records = data
+    else:
+        records = []
+    if not isinstance(records, list):
+        records = []
+    return {
+        "ok": str(code) == "000",
+        "code": code,
+        "msg": message,
+        "count": len(records),
+        "records": records,
+    }
 
 
 class AuthError(Exception):

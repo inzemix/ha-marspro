@@ -1,3 +1,25 @@
+fetch_alarm_feed:
+  name: Fetch the alarm log
+  description: >
+    Read-only diagnostic: returns the notifications and alarms the Mars Pro
+    cloud records for your account (its server-side message list). Nothing is
+    written and no command is sent to any device.
+
+    It exists because a device frame tells us *that* an alarm happened, never
+    *why* - on an iHub the alarm record carries no cause. The cloud feed does
+    carry the alarm type. The result is returned directly in Developer tools ->
+    Actions, so it can be copied and shared.
+  fields:
+    page:
+      name: Page
+      description: Which page of the feed to read (1 = most recent).
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 20
+
 generate_device_report:
   name: Generate device support report
   description: >

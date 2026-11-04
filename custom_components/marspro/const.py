@@ -48,6 +48,7 @@ KNOWN_NO_ENTITY_TYPES = {
 # The report is written inside the Home Assistant config directory so the user
 # can open it with the File Editor and paste it into a GitHub issue.
 SERVICE_GENERATE_REPORT = "generate_device_report"
+SERVICE_FETCH_ALARM_FEED = "fetch_alarm_feed"
 REPORT_FILENAME = "marspro_device_report.txt"
 SUPPORTED_TYPES = (DEVICE_IHUB10, DEVICE_CB43)
 
@@ -61,6 +62,13 @@ CAPTURE_MAX_BYTES = 256 * 1024
 # reports no alarm state inside its actuator blocks, only the sticky `alarmLast`
 # marker, so an event — not a binary sensor — is the honest primitive there.
 EVENT_ALARM = f"{DOMAIN}_alarm"
+
+# Server-side notification / alarm log (read-only). The device frame carries no
+# alarm cause on an iHub, so this feed is the only documented place where one
+# could be found (`alarmType`). Endpoint named by iClint/MarsHydroAPIDocs; the
+# path follows the same `/api/android/{section}/{action}/v1` shape as LOGIN_PATH
+# and DEVICE_LIST_PATH.
+ALARM_FEED_PATH = "/api/android/notice_msg/queryMessageList/v1"
 
 # Known actuator mapping per device class
 ACTUATORS_IHUB10 = {
