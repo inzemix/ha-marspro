@@ -58,6 +58,22 @@ python discover_device.py       # Windows
 
 Paste its output in a new issue.
 
+### Checking a report before acting on it
+
+`tools/audit_units.py` cross-checks the numbers in a report against a second, independent physical
+quantity: power factor from V × I vs P, VPD recomputed from temperature and humidity, energy
+magnitude, and plausible ranges for CO₂, PPFD and the soil probes. Standard library only, nothing to
+install, exit code 1 when something is inconsistent:
+
+```bash
+python3 audit_units.py marspro_device_report.txt
+```
+
+A mismatch means the mapping the integration uses for that field is probably wrong. This exists
+because **a healthy entity is not a true value**: `outlet.aRms` was reported in centiamps and
+exposed as amps for weeks — the sensor was available and updating, and displayed 103 A for a 1.03 A
+load. Presence, liveness and "0 unavailable" cannot catch that; only arithmetic on the numbers can.
+
 ## Installation
 
 ### Via the Marketplace (Home Assistant 2026.11 and newer)
