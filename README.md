@@ -169,7 +169,8 @@ one. So an automation can target the actual reason:
 ```
 
 If the device does not answer within a few seconds, the event still fires — without `cause`. The
-alarm is never delayed or lost for a missing detail.
+alarm is never delayed or lost for a missing detail. Verified on an iHub-10 Pro (v1.0.47): the hub
+answers `getAlarmLog` from the integration and the event carries `cause: Water bucket full`.
 
 A second, cloud-side route exists — the **`marspro.fetch_alarm_feed`** action, read-only — but on the
 iHub account it was tested against it returned `count: 0` even right after a confirmed alarm, so
