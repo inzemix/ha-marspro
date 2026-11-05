@@ -117,10 +117,10 @@ class MarsProAlarmBinarySensor(BinarySensorEntity):
                 block: {"code": code, "meaning": alarm_text(block, code)}
                 for block, code in active.items()
             },
-            # An iHub Pro reports no per-actuator alarm field at all (verified on
-            # real hardware, issue #5): there, "off" is not "all good", it is
-            # "this hub does not report it". This attribute keeps the difference
-            # visible; the `marspro_alarm` event is the usable trigger instead.
+            # Some devices report the field only while the fault is active (an
+            # iHub Pro: measured 6 s to ~3 h), so this flag says whether it has
+            # ever been seen — an "off" before that is genuinely unknown, not
+            # an all-clear.
             "reports_alarm_field": bool(
                 self._state.get("alarm_field_seen", {}).get(self._serial)
             ),

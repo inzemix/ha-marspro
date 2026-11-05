@@ -7,17 +7,20 @@ Two mechanisms exist in this ecosystem, and they are not equivalent:
 
 * Some devices report a fault inside the actuator block concerned, as an
   `alarm` code (`alarm: 5` on a dehumidifier = water bucket full). That is a
-  continuous state: `alarm_snapshot()` reads it, and the binary sensor exposes
-  it — but only where the field actually exists.
-* An iHub Pro does not: verified on real hardware (issue #5), its `getDevSta`
-  carries no `alarm` key anywhere, during a fault or after. All it has is a
-  sticky `alarmLast` marker (`{id, epoch, devType}`) that changes when a new
-  alarm is raised, without saying why. `AlarmTracker` turns a change of its id
-  into exactly one event.
-
-That second point is the reason the older "fault alarm" claim in the README was
-wrong on iHubs: there was nothing to read there, and no amount of listening
-would have produced it — the broker denies wildcard subscriptions.
+  state: `alarm_snapshot()` reads it, and the binary sensor exposes it.
+* An iHub Pro reports it too, but **only while the fault is active and not for
+  long**: measured on real hardware (issue #5), the field was present for 6 s,
+  24 s and about three hours across three faults, and absent from every
+  steady-state frame. That is why a report taken minutes later shows nothing,
+  and why polling alone is a race.
+* Every device also carries a sticky `alarmLast` marker
+  (`{id, epoch, devType}`) that changes when a new alarm is raised, without
+  saying why. `AlarmTracker` turns a change of its id into exactly one event —
+  that is the reliable trigger, independent of the transient field.
+* The **cause** comes from a device-local call: `getAlarmLog` answers with
+  `{"data": {"count": n, "list": [{"alarmType": 5, "devType": 26, ...}]}}`.
+  `resolve_alarm_cause()` asks for it and enriches the event, so "water bucket
+  full" can be stated without guessing.
 """
 
 # Fault codes the device raises in an actuator's own `alarm` field. Documented
@@ -31,6 +34,15 @@ ALARM_MEANINGS = {
 # Codes seen on other actuator types, kept separate so a code is never given a
 # meaning it was not observed with.
 GENERIC_MEANINGS = {3: "Device disconnected"}
+
+# `alarmType` codes, as answered by the device itself in `getAlarmLog`. `5` was
+# observed on three real bucket-full alarms (issue #5, iHub-10 Pro); `3` comes
+# from the protocol notes (inline fan disconnected). Anything else stays
+# unnamed rather than guessed.
+ALARM_TYPE_MEANINGS = {
+    3: "Device disconnected",
+    5: "Water bucket full",
+}
 
 # Device types seen in an alarm record. `26` is the dehumidifier: observed on an
 # iHub-10 Pro at the exact minute the vendor app pushed "tank full" (issue #5,
@@ -118,3 +130,69 @@ class AlarmTracker:
             "alarm_type": last.get("alarmType"),
             "device": hint or "unknown",
         }
+
+
+def parse_alarm_log(reply, alarm_id=None) -> dict | None:
+    """Extract the alarm record from a `getAlarmLog` answer.
+
+    Observed shape (issue #5, iHub-10 Pro):
+        {"code": 200, "data": {"count": 1, "list": [
+            {"alarmType": 5, "devType": 26, "epoch": 1793724889, "id": 48}]}}
+
+    The record matching `alarm_id` is preferred; otherwise the first one is
+    used. Returns None when the device did not answer usefully — the caller
+    then keeps the alarm without a cause rather than inventing one.
+    """
+    if not isinstance(reply, dict):
+        return None
+    if str(reply.get("code")) != "200":
+        return None
+    data = reply.get("data")
+    records = data.get("list") if isinstance(data, dict) else None
+    if not isinstance(records, list) or not records:
+        return None
+    record = None
+    for candidate in records:
+        if isinstance(candidate, dict) and candidate.get("id") == alarm_id:
+            record = candidate
+            break
+    if record is None:
+        first = records[0]
+        record = first if isinstance(first, dict) else None
+    if record is None:
+        return None
+    alarm_type = record.get("alarmType")
+    return {
+        "alarm_id": record.get("id"),
+        "alarm_type": alarm_type,
+        "dev_type": record.get("devType"),
+        "epoch": record.get("epoch"),
+        "cause": ALARM_TYPE_MEANINGS.get(alarm_type)
+        if isinstance(alarm_type, int) else None,
+    }
+
+
+async def resolve_alarm_cause(mqtt, serial: str, model: str, payload: dict,
+                              timeout: float = 3.0) -> dict:
+    """Ask the hub for its own alarm record and enrich the event payload.
+
+    `getAlarmLog` is a read-only request, answered by the device (no cloud feed
+    involved — that one is empty on iHub accounts). It must never make the
+    alarm event wait forever or fail: on any problem the original payload is
+    returned unchanged, so the event still fires, just without a cause.
+    """
+    try:
+        reply = await mqtt.request(serial, model, "getAlarmLog",
+                                   {"pid": serial}, timeout=timeout)
+    except Exception:  # noqa: BLE001 — an alarm must not be lost to a probe
+        return payload
+    detail = parse_alarm_log(reply, payload.get("alarm_id"))
+    if not detail:
+        return payload
+    enriched = dict(payload)
+    if detail.get("alarm_type") is not None:
+        enriched["alarm_type"] = detail["alarm_type"]
+    if detail.get("cause"):
+        enriched["cause"] = detail["cause"]
+    return enriched
+

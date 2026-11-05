@@ -32,7 +32,7 @@ from .const import (
     SUPPORTED_TYPES,
 )
 from .api import AuthError, MarsProAPI, parse_alarm_feed
-from .alarms import AlarmTracker, alarm_snapshot
+from .alarms import AlarmTracker, alarm_snapshot, resolve_alarm_cause
 from .mqtt_client import MarsProMQTT
 from .probe import build_report, probe_device
 from .wake import WakeTracker
@@ -243,6 +243,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # frame of each device only sets the baseline.
     alarm_events = AlarmTracker()
     device_names = {d["serial"]: d["name"] for d in devices}
+    device_models = {d["serial"]: d["model"] for d in devices}
 
     def _fire_alarm(payload: dict) -> None:
         try:
@@ -251,6 +252,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.bus.async_fire(EVENT_ALARM, data_out)
         except Exception:  # noqa: BLE001 — never break the message pipeline
             _LOGGER.debug("Mars Pro: could not fire %s", EVENT_ALARM, exc_info=True)
+
+    async def _async_emit_alarm(serial: str, payload: dict) -> None:
+        """Ask the hub for the alarm's cause, then fire the event.
+
+        `alarmLast` says which device alarmed but not why; the hub's own
+        `getAlarmLog` does carry the cause (issue #5: alarmType 5 = water bucket
+        full). The event fires even if the device never answers — the alarm
+        matters more than its cause, and a missing cause is better than a late
+        notification.
+        """
+        try:
+            payload = await resolve_alarm_cause(
+                mqtt, serial, device_models.get(serial, ""), payload
+            )
+        except Exception:  # noqa: BLE001 — never lose an alarm to a probe
+            _LOGGER.debug("Mars Pro: could not resolve the alarm cause", exc_info=True)
+        _fire_alarm(payload)
 
     # --- Waking an iHub up after an outage ---------------------------------
     # An iHub that reports masterOn=0 ignores every actuator command. The wake
@@ -344,7 +362,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # binary sensor's "off" means "no fault" and not "blind spot".
                     state["alarm_field_seen"][serial] = True
                 if alarm_payload := alarm_events.observe(serial, dev_data):
-                    _fire_alarm(alarm_payload)
+                    # Coroutine, not the Future of an executor job: see the b1
+                    # regression. The event is fired inside the task.
+                    hass.async_create_task(_async_emit_alarm(serial, alarm_payload))
                 consider_wake(serial)
 
     def on_mqtt_reconnect():

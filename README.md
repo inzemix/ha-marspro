@@ -137,9 +137,11 @@ returns to `off` by itself once the bucket is emptied. Attributes: `alarms` (raw
 reported `0` is kept), `active` (decoded code + meaning), `alarm_last`, and
 **`reports_alarm_field`** — which says whether this device actually reports the field at all.
 
-⚠️ **An iHub Pro does not.** Verified on real hardware: its `getDevSta` carries no `alarm` key in
-any actuator block, so `reports_alarm_field` stays `false` and an `off` sensor there is a blind
-spot, not an "all good". Use the event below instead.
+⚠️ **A fault is transient.** On an iHub Pro the field appears while the fault is active and is gone
+again afterwards: measured on real hardware, it was present for 6 s, 24 s and about three hours
+across three bucket-full events, and absent from every steady-state frame. So a device report taken
+minutes later shows nothing — that is expected, not a sign that the hub never reports it. The event
+below is the reliable trigger; this sensor is the live state, and it can be brief.
 
 ### 2. `alarmLast` marker — `marspro_alarm` event
 
@@ -148,18 +150,30 @@ recent alarm. The integration fires a **`marspro_alarm` event** once per new ala
 marker's `id` changes. The first frame after startup only sets the baseline, so an alarm raised
 while Home Assistant was down never triggers a notification storm.
 
-Event data: `serial`, `name`, `alarm_id`, `epoch`, `dev_type`, `alarm_type` (absent on an iHub),
-and `device` — a hint of *which* device alarmed (e.g. `dehumidifier`, `inline fan`).
+Event data: `serial`, `name`, `alarm_id`, `epoch`, `dev_type`, `device` (a hint of *which* device
+alarmed, e.g. `dehumidifier` / `inline fan`), and — when the device answered — `alarm_type` and
+`cause` (`5` → *Water bucket full*, `3` → *Device disconnected*).
 
-⚠️ **On an iHub the marker carries no cause.** `devType 26` identifies the dehumidifier, but a full
-water bucket and a defrost cycle produce the same record. Automate *"the dehumidifier raised an
-alarm"*, not *"the water bucket is full"* — the hub does not tell us which.
+⚠️ **`alarmLast` itself carries no cause** — `devType 26` identifies the dehumidifier, but the marker
+alone cannot tell a full bucket from a defrost. The **cause comes from the device**: on a new alarm
+the integration asks the hub for its own record (`getAlarmLog`), which answers
+`{"alarmType": 5, "devType": 26, …}`, and adds `alarm_type` and `cause` to the event when it gets
+one. So an automation can target the actual reason:
 
-If you need the cause, the **`marspro.fetch_alarm_feed`** action reads the account's server-side
-alarm log (read-only, nothing is written and no command is sent) and returns it directly in
-*Developer tools → Actions*. That feed carries an `alarmType` the device frame does not — **when it
-has records at all**: on the iHub account it was tested against it returned an empty list even right
-after a confirmed alarm, so `count: 0` is a possible answer, not a malfunction.
+```yaml
+    triggers:
+      - trigger: event
+        event_type: marspro_alarm
+        event_data:
+          cause: Water bucket full
+```
+
+If the device does not answer within a few seconds, the event still fires — without `cause`. The
+alarm is never delayed or lost for a missing detail.
+
+A second, cloud-side route exists — the **`marspro.fetch_alarm_feed`** action, read-only — but on the
+iHub account it was tested against it returned `count: 0` even right after a confirmed alarm, so
+`count: 0` is a possible answer, not a malfunction. `getAlarmLog` is the route that works.
 
 ```yaml
 automation:
